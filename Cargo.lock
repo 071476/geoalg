@@ -21,6 +21,13 @@ name = "geoalg-core"
 version = "0.1.0"
 
 [[package]]
+name = "geoalg-graphics"
+version = "0.1.0"
+dependencies = [
+ "geoalg-core",
+]
+
+[[package]]
 name = "geoalg-robotics"
 version = "0.1.0"
 dependencies = [
