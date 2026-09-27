@@ -1,0 +1,8 @@
+[package]
+name = "geoalg-robotics"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+geoalg-core = { path = "../geoalg-core" }
+geoalg-calculus = { path = "../geoalg-calculus" }

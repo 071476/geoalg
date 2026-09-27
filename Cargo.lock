@@ -19,3 +19,11 @@ dependencies = [
 [[package]]
 name = "geoalg-core"
 version = "0.1.0"
+
+[[package]]
+name = "geoalg-robotics"
+version = "0.1.0"
+dependencies = [
+ "geoalg-calculus",
+ "geoalg-core",
+]
