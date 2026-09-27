@@ -6,4 +6,5 @@ members = [
     "crates/geoalg-calculus",
     "crates/geoalg-robotics",
     "crates/geoalg-graphics",
+    "crates/geoalg-compat",
 ]
