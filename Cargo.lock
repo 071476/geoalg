@@ -10,5 +10,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "geoalg-calculus"
+version = "0.1.0"
+dependencies = [
+ "geoalg-core",
+]
+
+[[package]]
 name = "geoalg-core"
 version = "0.1.0"

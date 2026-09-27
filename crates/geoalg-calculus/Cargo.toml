@@ -1,0 +1,7 @@
+[package]
+name = "geoalg-calculus"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+geoalg-core = { path = "../geoalg-core" }
