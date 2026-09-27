@@ -6,7 +6,9 @@ version = 4
 name = "geoalg"
 version = "0.1.0"
 dependencies = [
+ "geoalg-calculus",
  "geoalg-core",
+ "geoalg-robotics",
 ]
 
 [[package]]

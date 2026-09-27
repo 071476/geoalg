@@ -20,3 +20,15 @@ pub use geoalg_core::ops::screw::{between, exp, log, screw_axis};
 
 // Compatibilidad con el mundo exterior.
 pub use geoalg_core::compat;
+
+// Robotica: modelo, cinematica, herramientas, trayectorias, limites.
+pub use geoalg_robotics::fk;
+pub use geoalg_robotics::limits;
+pub use geoalg_robotics::model;
+pub use geoalg_robotics::tool;
+pub use geoalg_robotics::trajectory;
+
+// Calculo: derivadas, jacobian, integrales, ODE.
+pub use geoalg_calculus::differential;
+pub use geoalg_calculus::integral;
+pub use geoalg_calculus::numeric;
