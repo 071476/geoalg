@@ -49,6 +49,21 @@ impl Motor {
     pub fn then(&self, next: &Motor) -> Motor {
         Motor(next.0.geo(&self.0, &Metric::pga()))
     }
+
+    /// Exponencial de un bivector: crea un motor.
+    pub fn exp(l: &Dense) -> Motor {
+        crate::ops::screw::exp(l)
+    }
+
+    /// Logaritmo: el bivector L tal que exp(L) = self.
+    pub fn log(&self) -> Dense {
+        crate::ops::screw::log(self)
+    }
+
+    /// Motor intermedio entre dos motores (t en [0, 1]).
+    pub fn between(a: &Motor, b: &Motor, t: f64) -> Motor {
+        crate::ops::screw::between(a, b, t)
+    }
 }
 
 #[cfg(test)]
@@ -98,3 +113,4 @@ mod tests {
         assert!(prod.approx_eq(&Dense::one(), EPS));
     }
 }
+ 

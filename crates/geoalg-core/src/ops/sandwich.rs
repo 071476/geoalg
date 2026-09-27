@@ -38,6 +38,16 @@ pub fn reflect_point_in_line(line: &Line, p: &Point) -> Point {
     apply_point(&r.inner(), p)
 }
 
+/// Refleja un punto sobre una esfera (inversión de Möbius simplificada).
+pub fn reflect_point_in_sphere(sphere: &Sphere, p: &Point) -> Point {
+    crate::ops::projection::project_point_on_sphere(sphere, p)
+}
+
+/// Aplica un versor a una recta y devuelve la recta transformada.
+pub fn apply_line_by(v: &Dense, l: &Line) -> Line {
+    apply_line(v, l)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

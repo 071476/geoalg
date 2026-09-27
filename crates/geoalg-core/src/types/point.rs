@@ -82,6 +82,16 @@ impl Point {
         ((ax - bx).powi(2) + (ay - by).powi(2) + (az - bz).powi(2)).sqrt()
     }
 
+        /// Punto medio entre dos puntos.
+    pub fn midpoint(&self, other: &Point) -> Point {
+        Point::from_dense((self.0 + other.0) * 0.5)
+    }
+
+    /// Interpolacion lineal: t=0 devuelve self, t=1 devuelve other.
+    pub fn lerp(&self, other: &Point, t: f64) -> Point {
+        Point::from_dense(self.0 * (1.0 - t) + other.0 * t)
+    }
+    
     pub fn from_dense(mv: Dense) -> Self {
         Point(mv)
     }

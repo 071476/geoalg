@@ -108,3 +108,13 @@ pub fn scalar_product(a: &Dense, b: &Dense, m: &Metric) -> f64 {
     }
     s
 }
+
+/// Conmutador: (ab - ba) / 2. Mide cuánto "no conmutan" dos elementos.
+pub fn commutator(a: &Dense, b: &Dense, m: &Metric) -> Dense {
+    (geo(a, b, m) - geo(b, a, m)) * 0.5
+}
+
+/// Anticonmutador: (ab + ba) / 2.
+pub fn anticommutator(a: &Dense, b: &Dense, m: &Metric) -> Dense {
+    (geo(a, b, m) + geo(b, a, m)) * 0.5
+}

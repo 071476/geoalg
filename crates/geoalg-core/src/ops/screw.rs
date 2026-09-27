@@ -114,6 +114,25 @@ pub fn between(a: &Motor, b: &Motor, t: f64) -> Motor {
     Motor::from_dense(a.inner().geo(&exp(&l).inner(), &m))
 }
 
+// Extrae el eje y paso del tornillo de un motor: (eje, paso, angulo).
+pub fn screw_axis(m: &Motor) -> ((f64, f64, f64), f64, f64) {
+    let l = log(m);
+    let rx = l.get(B23);
+    let ry = -l.get(B13);
+    let rz = l.get(B12);
+    let angle = (rx * rx + ry * ry + rz * rz).sqrt();
+    if angle < 1e-12 {
+        return ((0.0, 0.0, 1.0), 0.0, 0.0);
+    }
+    let axis = (rx / angle, ry / angle, rz / angle);
+    // Paso: componente de traslacion a lo largo del eje / angulo.
+    let tx = l.get(B01);
+    let ty = l.get(B02);
+    let tz = l.get(B03);
+    let pitch = (tx * axis.0 + ty * axis.1 + tz * axis.2) / angle;
+    (axis, pitch, angle)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

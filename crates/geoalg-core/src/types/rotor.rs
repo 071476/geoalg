@@ -20,7 +20,7 @@ pub struct Rotor(Dense);
 
 impl Rotor {
     pub fn identity() -> Self {
-        Rotor(Dense::one())
+        Rotor::from_dense(Dense::one())
     }
 
     /// Rotación de `angle` radianes alrededor de `axis`.
@@ -63,6 +63,12 @@ impl Rotor {
         Motor::from_dense(self.0)
     }
 
+    /// Interpolacion esferica entre dos rotors (t en [0, 1]).
+    pub fn slerp(a: &Rotor, b: &Rotor, t: f64) -> Rotor {
+        let m = crate::ops::screw::between(&a.to_motor(), &b.to_motor(), t);
+        Rotor(m.inner())
+    }
+    
     pub fn inner(&self) -> Dense {
         self.0
     }

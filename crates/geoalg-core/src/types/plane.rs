@@ -92,6 +92,16 @@ impl Plane {
         (self.a() * x + self.b() * y + self.c() * z + self.d()) / n
     }
 
+        /// Refleja un punto sobre el plano.
+    pub fn reflect(&self, p: &Point) -> Point {
+        crate::ops::sandwich::reflect_point_in_plane(self, p)
+    }
+
+    /// Pie de la perpendicular desde un punto hasta el plano.
+    pub fn project(&self, p: &Point) -> Point {
+        crate::ops::projection::project_point_on_plane(self, p)
+    }
+    
     pub fn from_dense(mv: Dense) -> Self {
         Plane(mv)
     }

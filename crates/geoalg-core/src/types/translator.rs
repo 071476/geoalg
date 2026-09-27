@@ -58,6 +58,17 @@ impl Translator {
         Motor::from_dense(self.0)
     }
 
+        /// Interpolacion lineal entre dos traslaciones (t en [0, 1]).
+    pub fn lerp(a: &Translator, b: &Translator, t: f64) -> Translator {
+        let (ax, ay, az) = a.displacement();
+        let (bx, by, bz) = b.displacement();
+        Translator::new(
+            ax + (bx - ax) * t,
+            ay + (by - ay) * t,
+            az + (bz - az) * t,
+        )
+    }
+    
     pub fn inner(&self) -> Dense {
         self.0
     }
