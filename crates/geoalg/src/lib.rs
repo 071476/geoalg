@@ -2,6 +2,7 @@ pub mod algebras;
 pub mod prelude;
 
 pub use geoalg_core as core;
+pub use geoalg_core::compat;
 
 #[cfg(test)]
 mod tests {
@@ -25,5 +26,11 @@ mod tests {
         let t = Translator::new(1.0, 2.0, 3.0);
         let p = apply_point(&t.inner(), &Point::origin());
         assert!(close(p.coords().unwrap(), (1.0, 2.0, 3.0)));
+    }
+
+    #[test]
+    fn prelude_compat_cuaternion() {
+        let q = compat::rotor_to_quaternion(&Rotor::identity());
+        assert!((q.0 - 1.0).abs() < 1e-9 && q.1.abs() < 1e-9);
     }
 }
