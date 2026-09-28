@@ -23,12 +23,14 @@
 
 ## Instalación
 
+Agrega `geoalg` en tu `Cargo.toml`:
+
 ```toml
 [dependencies]
-geoalg = { path = "crates/geoalg" }
-geoalg-robotics = { path = "crates/geoalg-robotics" }
-geoalg-calculus = { path = "crates/geoalg-calculus" }
-geoalg-compat = { path = "crates/geoalg-compat" }
+geoalg = { git = "https://github.com/071476/geoalg.git" }
+geoalg-robotics = { git = "https://github.com/071476/geoalg.git" }
+geoalg-calculus = { git = "https://github.com/071476/geoalg.git" }
+geoalg-compat = { git = "https://github.com/071476/geoalg.git" }
 
 
 ---
