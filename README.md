@@ -29,3 +29,17 @@ geoalg = { path = "crates/geoalg" }
 geoalg-robotics = { path = "crates/geoalg-robotics" }
 geoalg-calculus = { path = "crates/geoalg-calculus" }
 geoalg-compat = { path = "crates/geoalg-compat" }
+
+
+---
+
+## Licencias
+
+Proyecto con **doble licencia**, al estilo de Rust y Bevy:
+
+- **MIT** — máxima libertad, incluye uso comercial.
+- **Apache-2.0** — incluye protección de patentes explícita.
+
+Puedes elegir cualquiera de las dos (o ambas). Ver [LICENSE-MIT](LICENSE-MIT) y [LICENSE-APACHE](LICENSE-APACHE).
+
+Los contribuidores aceptan que sus contribuciones se publiquen bajo ambas licencias (estándar de la comunidad Rust).

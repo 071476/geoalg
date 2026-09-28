@@ -9,3 +9,9 @@ members = [
     "crates/geoalg-compat",
     "crates/geoalg-ffi",
 ]
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/071476/geoalg"
+authors = ["071476 <ali-gafer@hotmail.com>"]
