@@ -1,0 +1,3 @@
+language = "C"
+header = "/* geoalg-ffi: puente C para Unity, Unreal y otros motores. */"
+include_guard = "GEOALG_FFI_H"

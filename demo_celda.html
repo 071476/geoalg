@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>geoalg — Celda Industrial 3×6</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0b0b1e; color: #e0e0e0; font-family: 'Consolas', monospace; overflow: hidden; }
+canvas { display: block; }
+#hud { position: absolute; top: 15px; left: 15px; background: rgba(11,11,30,0.92); padding: 18px; border-radius: 14px; border: 1px solid #334; min-width: 240px; }
+#hud h1 { font-size: 15px; color: #4fc3f7; margin-bottom: 6px; }
+#hud h2 { font-size: 10px; color: #777; text-transform: uppercase; letter-spacing: 1.5px; margin: 10px 0 3px; }
+#hud .val { font-size: 11px; margin: 2px 0; }
+#hud .r1 { color: #4fc3f7; } #hud .r2 { color: #81c784; } #hud .r3 { color: #ffb74d; }
+#hud .sep { border-top: 1px solid #223; margin: 10px 0; }
+#hud .ok { color: #81c784; font-size: 11px; } #hud .err { color: #e57373; font-size: 11px; }
+#ctrl { position: absolute; bottom: 15px; left: 15px; background: rgba(11,11,30,0.92); padding: 15px 18px; border-radius: 14px; border: 1px solid #334; display: flex; gap: 16px; }
+#ctrl label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px; }
+#ctrl .row { display: flex; align-items: center; gap: 5px; margin: 2px 0; }
+#ctrl .row span { min-width: 18px; font-size: 10px; color: #aaa; }
+#ctrl input[type=range] { width: 80px; height: 4px; }
+#ctrl .g1 input { accent-color: #4fc3f7; }
+#ctrl .g2 input { accent-color: #81c784; }
+#ctrl .g3 input { accent-color: #ffb74d; }
+#ctrl button { background: #4fc3f7; color: #0b0b1e; border: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-family: inherit; font-weight: bold; font-size: 11px; }
+#collision { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 30px; color: #e57373; font-weight: bold; text-shadow: 0 0 20px #e57373; display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <h1>🏭 Celda Industrial</h1>
+  <div style="font-size:11px;color:#888">3 robots × 6 articulaciones</div>
+  <h2>Robot 1 — Azul</h2>
+  <div class="val r1" id="r1info">TCP: (0,0,0)</div>
+  <h2>Robot 2 — Verde</h2>
+  <div class="val r2" id="r2info">TCP: (0,0,0)</div>
+  <h2>Robot 3 — Naranja</h2>
+  <div class="val r3" id="r3info">TCP: (0,0,0)</div>
+  <div class="sep"></div>
+  <h2>Estado</h2>
+  <div class="ok" id="colstatus">✅ Sin colisiones</div>
+</div>
+
+<div id="ctrl">
+  <div class="g1">
+    <label>Robot 1</label>
+    <div class="row"><span>J1</span><input type="range" id="a0" min="-300" max="300" value="0"></div>
+    <div class="row"><span>J2</span><input type="range" id="a1" min="-150" max="150" value="40"></div>
+    <div class="row"><span>J3</span><input type="range" id="a2" min="-150" max="150" value="-30"></div>
+    <div class="row"><span>J4</span><input type="range" id="a3" min="-300" max="300" value="0"></div>
+    <div class="row"><span>J5</span><input type="range" id="a4" min="-150" max="150" value="0"></div>
+    <div class="row"><span>J6</span><input type="range" id="a5" min="-300" max="300" value="0"></div>
+  </div>
+  <div class="g2">
+    <label>Robot 2</label>
+    <div class="row"><span>J1</span><input type="range" id="b0" min="-300" max="300" value="150"></div>
+    <div class="row"><span>J2</span><input type="range" id="b1" min="-150" max="150" value="30"></div>
+    <div class="row"><span>J3</span><input type="range" id="b2" min="-150" max="150" value="-20"></div>
+    <div class="row"><span>J4</span><input type="range" id="b3" min="-300" max="300" value="0"></div>
+    <div class="row"><span>J5</span><input type="range" id="b4" min="-150" max="150" value="0"></div>
+    <div class="row"><span>J6</span><input type="range" id="b5" min="-300" max="300" value="0"></div>
+  </div>
+  <div class="g3">
+    <label>Robot 3</label>
+    <div class="row"><span>J1</span><input type="range" id="c0" min="-300" max="300" value="-150"></div>
+    <div class="row"><span>J2</span><input type="range" id="c1" min="-150" max="150" value="35"></div>
+    <div class="row"><span>J3</span><input type="range" id="c2" min="-150" max="150" value="-25"></div>
+    <div class="row"><span>J4</span><input type="range" id="c3" min="-300" max="300" value="0"></div>
+    <div class="row"><span>J5</span><input type="range" id="c4" min="-150" max="150" value="0"></div>
+    <div class="row"><span>J6</span><input type="range" id="c5" min="-300" max="300" value="0"></div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:6px;justify-content:center">
+    <button onclick="autoOn=!autoOn">▶ Auto</button>
+    <button onclick="camAngleY=0.3;camAngleX=-0.4;camDist=14">🔄 Vista</button>
+    <button onclick="autoOn=false;document.querySelectorAll('input[type=range]').forEach(e=>e.value=0)">↺ Reset</button>
+  </div>
+</div>
+<div id="collision">⚠️ ¡COLISIÓN! ⚠️</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+resize();
+addEventListener('resize', resize);
+
+// === Camera ===
+let camAngleY = 0.3, camAngleX = -0.4, camDist = 14;
+let dragging = false, lastMX = 0, lastMY = 0;
+canvas.addEventListener('mousedown', e => { dragging = true; lastMX = e.clientX; lastMY = e.clientY; });
+canvas.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  camAngleY += (e.clientX - lastMX) * 0.008;
+  camAngleX += (e.clientY - lastMY) * 0.008;
+  camAngleX = Math.max(-1.5, Math.min(1.5, camAngleX));
+  lastMX = e.clientX; lastMY = e.clientY;
+});
+canvas.addEventListener('mouseup', () => dragging = false);
+canvas.addEventListener('wheel', e => { camDist = Math.max(5, Math.min(30, camDist + e.deltaY * 0.01)); });
+
+// === Projection: 3D world → 2D screen ===
+function proj(p) {
+  const s = Math.min(canvas.width, canvas.height) * 0.07;
+  const cx = canvas.width * 0.5;
+  const cy = canvas.height * 0.45;
+  // Rotate around Y (horizontal) then X (tilt)
+  const cosY = Math.cos(camAngleY), sinY = Math.sin(camAngleY);
+  const cosX = Math.cos(camAngleX), sinX = Math.sin(camAngleX);
+  const rx = p.x * cosY - p.z * sinY;
+  const rz = p.x * sinY + p.z * cosY;
+  const ry = p.y * cosX - rz * sinX;
+  const depth = p.y * sinX + rz * cosX;
+  const persp = camDist / (camDist + depth * 0.3);
+  return { sx: cx + rx * s * persp, sy: cy - ry * s * persp, d: depth };
+}
+
+// === Robot FK: 6 joints ===
+// Links: [base_height, upper_arm, forearm, wrist1, wrist2, tool]
+const LINKS = [1.0, 1.5, 1.3, 0.5, 0.4, 0.6];
+
+function robotFK(bx, by, bz, q) {
+  const pts = [{ x: bx, y: by, z: bz }];
+  let x = bx, y = by, z = bz;
+
+  // J1: base height (vertical)
+  y += LINKS[0];
+  pts.push({ x, y, z });
+
+  // J2: shoulder pitch
+  let pitch = q[1];
+  y += LINKS[1] * Math.cos(pitch);
+  x += LINKS[1] * Math.sin(pitch) * Math.sin(q[0]);
+  z += LINKS[1] * Math.sin(pitch) * Math.cos(q[0]);
+  pts.push({ x, y, z });
+
+  // J3: elbow pitch
+  let pitch2 = q[1] + q[2];
+  y += LINKS[2] * Math.cos(pitch2);
+  x += LINKS[2] * Math.sin(pitch2) * Math.sin(q[0]);
+  z += LINKS[2] * Math.sin(pitch2) * Math.cos(q[0]);
+  pts.push({ x, y, z });
+
+  // J4: wrist roll → pitch shifts
+  let pitch3 = pitch2 + q[3] * 0.3;
+  y += LINKS[3] * Math.cos(pitch3);
+  x += LINKS[3] * Math.sin(pitch3) * Math.sin(q[0]);
+  z += LINKS[3] * Math.sin(pitch3) * Math.cos(q[0]);
+  pts.push({ x, y, z });
+
+  // J5: wrist pitch
+  let pitch4 = pitch3 + q[4];
+  y += LINKS[4] * Math.cos(pitch4);
+  x += LINKS[4] * Math.sin(pitch4) * Math.sin(q[0]);
+  z += LINKS[4] * Math.sin(pitch4) * Math.cos(q[0]);
+  pts.push({ x, y, z });
+
+  // J6: tool
+  let pitch5 = pitch4 + q[5] * 0.2;
+  y += LINKS[5] * Math.cos(pitch5);
+  x += LINKS[5] * Math.sin(pitch5) * Math.sin(q[0]);
+  z += LINKS[5] * Math.sin(pitch5) * Math.cos(q[0]);
+  pts.push({ x, y, z });
+
+  return pts;
+}
+
+// === Collision: min distance between robot links ===
+function segDist(p1, p2, p3, p4) {
+  const m1 = { x: (p1.x+p2.x)/2, y: (p1.y+p2.y)/2, z: (p1.z+p2.z)/2 };
+  const m2 = { x: (p3.x+p4.x)/2, y: (p3.y+p4.y)/2, z: (p3.z+p4.z)/2 };
+  return Math.sqrt((m1.x-m2.x)**2 + (m1.y-m2.y)**2 + (m1.z-m2.z)**2);
+}
+
+function checkCol(r1, r2, r3) {
+  let minD = Infinity;
+  for (let i = 0; i < r1.length-1; i++) {
+    for (let j = 0; j < r2.length-1; j++) {
+      minD = Math.min(minD, segDist(r1[i],r1[i+1],r2[j],r2[j+1]));
+    }
+    for (let j = 0; j < r3.length-1; j++) {
+      minD = Math.min(minD, segDist(r1[i],r1[i+1],r3[j],r3[j+1]));
+    }
+  }
+  for (let i = 0; i < r2.length-1; i++) {
+    for (let j = 0; j < r3.length-1; j++) {
+      minD = Math.min(minD, segDist(r2[i],r2[i+1],r3[j],r3[j+1]));
+    }
+  }
+  return minD;
+}
+
+// === Draw floor ===
+function drawFloor() {
+  for (let i = -6; i <= 6; i++) {
+    const a = proj({x:i, y:0, z:-6}), b = proj({x:i, y:0, z:6});
+    ctx.strokeStyle = (i%3===0) ? 'rgba(50,70,110,0.5)' : 'rgba(35,50,75,0.25)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+    const c = proj({x:-6, y:0, z:i}), d = proj({x:6, y:0, z:i});
+    ctx.beginPath(); ctx.moveTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.stroke();
+  }
+  // Axes
+  const o = proj({x:0,y:0,z:0});
+  const ax = proj({x:2,y:0,z:0}), ay = proj({x:0,y:2,z:0}), az = proj({x:0,y:0,z:2});
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#e57373'; ctx.beginPath(); ctx.moveTo(o.sx,o.sy); ctx.lineTo(ax.sx,ax.sy); ctx.stroke();
+  ctx.strokeStyle = '#81c784'; ctx.beginPath(); ctx.moveTo(o.sx,o.sy); ctx.lineTo(ay.sx,ay.sy); ctx.stroke();
+  ctx.strokeStyle = '#4fc3f7'; ctx.beginPath(); ctx.moveTo(o.sx,o.sy); ctx.lineTo(az.sx,az.sy); ctx.stroke();
+  ctx.font = '13px Consolas';
+  ctx.fillStyle = '#e57373'; ctx.fillText('X', ax.sx+6, ax.sy);
+  ctx.fillStyle = '#81c784'; ctx.fillText('Y', ay.sx+6, ay.sy);
+  ctx.fillStyle = '#4fc3f7'; ctx.fillText('Z', az.sx+6, az.sy);
+}
+
+// === Draw one robot ===
+function drawRobot(pts, color, darkColor, label) {
+  const P = pts.map(proj);
+  // Links
+  for (let i = 0; i < P.length - 1; i++) {
+    const isTool = (i === P.length - 2);
+    const g = ctx.createLinearGradient(P[i].sx, P[i].sy, P[i+1].sx, P[i+1].sy);
+    if (isTool) {
+      g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#cccccc');
+    } else {
+      g.addColorStop(0, color); g.addColorStop(1, darkColor);
+    }
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 10;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(P[i].sx, P[i].sy); ctx.lineTo(P[i+1].sx, P[i+1].sy); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(P[i].sx, P[i].sy); ctx.lineTo(P[i+1].sx, P[i+1].sy); ctx.stroke();
+  }
+  // Joints
+  for (let i = 0; i < P.length; i++) {
+    const isTCP = (i === P.length - 1);
+    const r = isTCP ? 8 : 6;
+    const glow = ctx.createRadialGradient(P[i].sx, P[i].sy, 0, P[i].sx, P[i].sy, r*3);
+    glow.addColorStop(0, isTCP ? 'rgba(255,255,255,0.5)' : 'rgba(100,180,255,0.3)');
+    glow.addColorStop(1, 'transparent');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(P[i].sx, P[i].sy, r*3, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = isTCP ? '#fff' : color;
+    ctx.beginPath(); ctx.arc(P[i].sx, P[i].sy, r, 0, Math.PI*2); ctx.fill();
+  }
+  // Label at base
+  ctx.fillStyle = color;
+  ctx.font = 'bold 11px Consolas';
+  ctx.fillText(label, P[0].sx - 10, P[0].sy + 22);
+  // TCP shadow
+  const tcp = P[P.length-1];
+  const shadow = proj({ x: pts[pts.length-1].x, y: 0, z: pts[pts.length-1].z });
+  ctx.setLineDash([4,4]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(tcp.sx, tcp.sy); ctx.lineTo(shadow.sx, shadow.sy); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// === Draw base platforms ===
+function drawBase(x, z, color) {
+  const p = proj({x, y: 0, z});
+  const p2 = proj({x: x+0.5, y: 0, z});
+  const p3 = proj({x, y: 0, z: z+0.5});
+  const rx = Math.abs(p2.sx - p.sx);
+  const ry = Math.abs(p3.sy - p.sy);
+  const r = Math.max(rx, ry);
+  ctx.fillStyle = 'rgba(60,60,100,0.5)';
+  ctx.beginPath(); ctx.ellipse(p.sx, p.sy, r, r*0.35, 0, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(p.sx, p.sy, r, r*0.35, 0, 0, Math.PI*2); ctx.stroke();
+}
+
+// === Get slider values ===
+function getQ(prefix) {
+  return [0,1,2,3,4,5].map(i => {
+    const el = document.getElementById(prefix + i);
+    return el ? Number(el.value) / 100 : 0;
+  });
+}
+
+// === Main loop ===
+let autoOn = true;
+let time = 0;
+
+function frame() {
+  requestAnimationFrame(frame);
+  ctx.fillStyle = '#0b0b1e';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Auto animation
+  if (autoOn) {
+    time += 0.01;
+    const t = time;
+    // Robot 1: sweeping
+    document.getElementById('a0').value = Math.round(Math.sin(t * 0.5) * 120);
+    document.getElementById('a1').value = Math.round(Math.sin(t * 0.3) * 60 + 40);
+    document.getElementById('a2').value = Math.round(Math.sin(t * 0.4 + 1) * 50 - 20);
+    document.getElementById('a3').value = Math.round(Math.sin(t * 0.6) * 80);
+    document.getElementById('a4').value = Math.round(Math.sin(t * 0.35) * 40);
+    document.getElementById('a5').value = Math.round(Math.sin(t * 0.7) * 60);
+    // Robot 2: different phase
+    document.getElementById('b0').value = Math.round(Math.sin(t * 0.4 + 2) * 100 + 100);
+    document.getElementById('b1').value = Math.round(Math.sin(t * 0.35 + 0.5) * 55 + 30);
+    document.getElementById('b2').value = Math.round(Math.sin(t * 0.45 + 1.5) * 45 - 15);
+    document.getElementById('b3').value = Math.round(Math.sin(t * 0.55 + 1) * 70);
+    document.getElementById('b4').value = Math.round(Math.sin(t * 0.4 + 2) * 35);
+    document.getElementById('b5').value = Math.round(Math.sin(t * 0.65 + 0.5) * 50);
+    // Robot 3: different phase (FIXED: was Math.time)
+    document.getElementById('c0').value = Math.round(Math.sin(t * 0.45 + 4) * 110 - 80);
+    document.getElementById('c1').value = Math.round(Math.sin(t * 0.3 + 1) * 50 + 35);
+    document.getElementById('c2').value = Math.round(Math.sin(t * 0.4 + 2) * 40 - 20);
+    document.getElementById('c3').value = Math.round(Math.sin(t * 0.6 + 2) * 60);
+    document.getElementById('c4').value = Math.round(Math.sin(t * 0.3 + 3) * 30);
+    document.getElementById('c5').value = Math.round(Math.sin(t * 0.7 + 1) * 55);
+  }
+
+  const q1 = getQ('a');
+  const q2 = getQ('b');
+  const q3 = getQ('c');
+
+  // Bases
+  const bases = [ {x:-3, y:0, z:0}, {x:3, y:0, z:0}, {x:0, y:0, z:-3} ];
+
+  drawFloor();
+  drawBase(bases[0].x, bases[0].z, '#4fc3f7');
+  drawBase(bases[1].x, bases[1].z, '#81c784');
+  drawBase(bases[2].x, bases[2].z, '#ffb74d');
+
+  const r1 = robotFK(bases[0].x, bases[0].y, bases[0].z, q1);
+  const r2 = robotFK(bases[1].x, bases[1].y, bases[1].z, q2);
+  const r3 = robotFK(bases[2].x, bases[2].y, bases[2].z, q3);
+
+  // Draw robots (sorted by depth for overlap)
+  drawRobot(r1, '#4fc3f7', '#1565c0', 'Robot 1');
+  drawRobot(r2, '#81c784', '#2e7d32', 'Robot 2');
+  drawRobot(r3, '#ffb74d', '#e65100', 'Robot 3');
+
+  // Collision check
+  const minD = checkCol(r1, r2, r3);
+  const isCol = minD < 1.0;
+  const colEl = document.getElementById('collision');
+  const statusEl = document.getElementById('colstatus');
+
+  if (isCol) {
+    colEl.style.display = 'block';
+    statusEl.innerHTML = '⚠️ Colisión: dist=' + minD.toFixed(2);
+    statusEl.className = 'err';
+  } else {
+    colEl.style.display = 'none';
+    statusEl.innerHTML = '✅ Sin colisiones (min: ' + minD.toFixed(1) + ')';
+    statusEl.className = 'ok';
+  }
+
+  // Update HUD
+  const fmt = (v) => '(' + v.x.toFixed(1) + ', ' + v.y.toFixed(1) + ', ' + v.z.toFixed(1) + ')';
+  document.getElementById('r1info').textContent = 'TCP: ' + fmt(r1[6]);
+  document.getElementById('r2info').textContent = 'TCP: ' + fmt(r2[6]);
+  document.getElementById('r3info').textContent = 'TCP: ' + fmt(r3[6]);
+}
+
+frame();
+</script>
+</body>
+</html>

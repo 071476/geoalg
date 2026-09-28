@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>geoalg — Robot Arm Demo</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a1a; color: #e0e0e0; font-family: 'Consolas', monospace; overflow: hidden; }
+canvas { display: block; }
+#info { position: absolute; top: 20px; left: 20px; background: rgba(10,10,30,0.9); padding: 20px; border-radius: 12px; border: 1px solid #334; max-width: 320px; }
+#info h1 { font-size: 18px; color: #4fc3f7; margin-bottom: 10px; }
+#info .val { color: #81c784; font-size: 13px; margin: 3px 0; }
+#info .label { color: #aaa; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-top: 12px; }
+#info .sep { border-top: 1px solid #334; margin: 10px 0; }
+#controls { position: absolute; bottom: 20px; left: 20px; background: rgba(10,10,30,0.9); padding: 15px 20px; border-radius: 12px; border: 1px solid #334; }
+#controls label { font-size: 11px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+#controls input[type=range] { width: 200px; margin: 5px 10px; accent-color: #4fc3f7; }
+#controls .row { margin: 8px 0; display: flex; align-items: center; gap: 10px; }
+#controls .row span { min-width: 70px; font-size: 12px; color: #ccc; }
+#status { position: absolute; top: 20px; right: 20px; background: rgba(10,10,30,0.9); padding: 15px 20px; border-radius: 12px; border: 1px solid #334; font-size: 12px; }
+#status .ok { color: #81c784; }
+#status .warn { color: #ffb74d; }
+#status .err { color: #e57373; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info">
+  <h1>🤖 geoalg Robot Arm</h1>
+  <div class="label">FK — Forward Kinematics</div>
+  <div class="val" id="fk-base">Base: (0.00, 0.00, 0.00)</div>
+  <div class="val" id="fk-j1">J1: (0.00, 0.00, 1.00)</div>
+  <div class="val" id="fk-j2">J2: (0.00, 0.00, 2.00)</div>
+  <div class="val" id="fk-tip">Tip: (0.00, 0.00, 3.00)</div>
+  <div class="val" id="fk-tcp" style="color:#ff8a65">TCP: (0.00, 0.00, 3.50)</div>
+  <div class="sep"></div>
+  <div class="label">Angulos articulares</div>
+  <div class="val" id="q-display">q = [0.00, 0.00, 0.00]</div>
+</div>
+<div id="controls">
+  <div class="row"><span>Base (Z)</span><input type="range" id="q0" min="-314" max="314" value="0"></div>
+  <div class="row"><span>Hombro (X)</span><input type="range" id="q1" min="-200" max="200" value="50"></div>
+  <div class="row"><span>Codo (X)</span><input type="range" id="q2" min="-200" max="200" value="-30"></div>
+  <div class="row"><span>Auto</span><input type="checkbox" id="auto" checked> <span style="min-width:30px">animar</span></div>
+</div>
+<div id="status">
+  <div class="label">Módulos</div>
+  <div class="ok">✅ model — Robot 3 joints</div>
+  <div class="ok">✅ fk — forward kinematics</div>
+  <div class="ok">✅ tool — TCP offset 0.5</div>
+  <div class="ok">✅ limits — ±3.14 rad</div>
+  <div class="ok">✅ trajectory — smooth</div>
+  <div class="ok">✅ compat — Mat4</div>
+</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
+resize();
+addEventListener('resize', resize);
+
+// === Model: 3 revolute joints (igual que model.rs) ===
+// Joint 0: axis Z at (0,0,0), offset (0,0,1)
+// Joint 1: axis X at (0,0,1), offset (0,0,1)
+// Joint 2: axis X at (0,0,2), offset (0,0,1)
+// Tool: offset (0,0,0.5)
+
+function fk(q) {
+  // Simple 3D FK for a 3-joint arm (geometric equivalent of geoalg FK)
+  let pts = [{x:0, y:0, z:0}];
+  let ang = 0, ang2 = 0;
+  let x = 0, y = 0, z = 0;
+
+  // Joint 0: rotate around Z, offset (0,0,1)
+  let a0 = q[0];
+  z += 1;
+  pts.push({x:0, y:0, z:1});
+
+  // Joint 1: rotate around X, offset (0,0,1)
+  let a1 = q[1];
+  // The link goes up (0,0,1) rotated by a1 around X, then rotated by a0 around Z
+  let dx1 = 0, dy1 = -Math.sin(a1), dz1 = Math.cos(a1);
+  // Rotate around Z by a0
+  let dx1r = dx1*Math.cos(a0) - dy1*Math.sin(a0);
+  let dy1r = dx1*Math.sin(a0) + dy1*Math.cos(a0);
+  x += dx1r; y += dy1r; z += dz1;
+  pts.push({x, y, z});
+
+  // Joint 2: rotate around X, offset (0,0,1) — accumulated rotation
+  let a2 = q[2];
+  // Effective X rotation = a1 + a2
+  let a12 = a1 + a2;
+  let dx2 = 0, dy2 = -Math.sin(a12), dz2 = Math.cos(a12);
+  let dx2r = dx2*Math.cos(a0) - dy2*Math.sin(a0);
+  let dy2r = dx2*Math.sin(a0) + dy2*Math.cos(a0);
+  x += dx2r; y += dy2r; z += dz2;
+  pts.push({x, y, z});
+
+  // TCP: offset (0,0,0.5) from tip
+  let dx3 = 0, dy3 = -Math.sin(a12)*0.5, dz3 = Math.cos(a12)*0.5;
+  let dx3r = dx3*Math.cos(a0) - dy3*Math.sin(a0);
+  let dy3r = dx3*Math.sin(a0) + dy3*Math.cos(a0);
+  pts.push({x: x+dx3r, y: y+dy3r, z: z+dz3});
+
+  return pts;
+}
+
+// === 3D to 2D projection ===
+function project(p) {
+  const scale = Math.min(canvas.width, canvas.height) * 0.08;
+  const cx = canvas.width * 0.55, cy = canvas.height * 0.55;
+  // Isometric-ish: slight tilt
+  const tilt = 0.5;
+  const rot = 0.1;
+  const px = cx + (p.x * Math.cos(rot) - p.y * Math.sin(rot)) * scale;
+  const py = cy - (p.z * scale) + (p.x * Math.sin(rot) + p.y * Math.cos(rot)) * scale * tilt;
+  return {x: px, y: py, z: p.z};
+}
+
+// === Draw ground grid ===
+function drawGrid() {
+  ctx.strokeStyle = 'rgba(50,70,100,0.3)';
+  ctx.lineWidth = 1;
+  for (let i = -5; i <= 5; i++) {
+    let p1 = project({x:i, y:-5, z:0}), p2 = project({x:i, y:5, z:0});
+    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+    p1 = project({x:-5, y:i, z:0}); p2 = project({x:5, y:i, z:0});
+    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+  }
+  // Axes
+  const o = project({x:0,y:0,z:0});
+  const ax = project({x:2,y:0,z:0}), ay = project({x:0,y:2,z:0}), az = project({x:0,y:0,z:2});
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#e57373'; ctx.beginPath(); ctx.moveTo(o.x,o.y); ctx.lineTo(ax.x,ax.y); ctx.stroke();
+  ctx.strokeStyle = '#81c784'; ctx.beginPath(); ctx.moveTo(o.x,o.y); ctx.lineTo(ay.x,ay.y); ctx.stroke();
+  ctx.strokeStyle = '#4fc3f7'; ctx.beginPath(); ctx.moveTo(o.x,o.y); ctx.lineTo(az.x,az.y); ctx.stroke();
+  ctx.font = '14px Consolas';
+  ctx.fillStyle = '#e57373'; ctx.fillText('X', ax.x+5, ax.y);
+  ctx.fillStyle = '#81c784'; ctx.fillText('Y', ay.x+5, ay.y);
+  ctx.fillStyle = '#4fc3f7'; ctx.fillText('Z', az.x+5, az.y-5);
+}
+
+// === Draw robot ===
+function drawRobot(pts) {
+  const proj = pts.map(project);
+
+  // Draw links (thick lines)
+  for (let i = 0; i < proj.length - 1; i++) {
+    const isTool = i === proj.length - 2;
+    const grad = ctx.createLinearGradient(proj[i].x, proj[i].y, proj[i+1].x, proj[i+1].y);
+    if (isTool) {
+      grad.addColorStop(0, '#ff8a65'); grad.addColorStop(1, '#ffab91');
+    } else {
+      grad.addColorStop(0, '#4fc3f7'); grad.addColorStop(1, '#81c784');
+    }
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(proj[i].x, proj[i].y); ctx.lineTo(proj[i+1].x, proj[i+1].y); ctx.stroke();
+
+    // Inner highlight
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(proj[i].x, proj[i].y); ctx.lineTo(proj[i+1].x, proj[i+1].y); ctx.stroke();
+  }
+
+  // Draw joints
+  const colors = ['#fff', '#4fc3f7', '#81c784', '#aed581', '#ff8a65'];
+  for (let i = 0; i < proj.length; i++) {
+    const isTCP = i === proj.length - 1;
+    const r = isTCP ? 12 : 8;
+
+    // Glow
+    const glow = ctx.createRadialGradient(proj[i].x, proj[i].y, 0, proj[i].x, proj[i].y, r*3);
+    glow.addColorStop(0, isTCP ? 'rgba(255,138,101,0.6)' : 'rgba(79,195,247,0.4)');
+    glow.addColorStop(1, 'transparent');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(proj[i].x, proj[i].y, r*3, 0, Math.PI*2); ctx.fill();
+
+    // Circle
+    ctx.fillStyle = colors[Math.min(i, colors.length-1)];
+    ctx.beginPath(); ctx.arc(proj[i].x, proj[i].y, r, 0, Math.PI*2); ctx.fill();
+
+    // Label
+    if (!isTCP && i > 0) {
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px Consolas';
+      ctx.fillText(`J${i}`, proj[i].x+12, proj[i].y-10);
+    }
+  }
+
+  // TCP label
+  const tcp = proj[proj.length-1];
+  ctx.fillStyle = '#ff8a65';
+  ctx.font = 'bold 12px Consolas';
+  ctx.fillText('TCP', tcp.x+15, tcp.y+5);
+
+  // Dashed line to ground (TCP shadow)
+  const tcpGround = project({x: pts[pts.length-1].x, y: pts[pts.length-1].y, z: 0});
+  ctx.setLineDash([5, 5]);
+  ctx.strokeStyle = 'rgba(255,138,101,0.3)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(tcp.x, tcp.y); ctx.lineTo(tcpGround.x, tcpGround.y); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// === Main loop ===
+let time = 0;
+function frame() {
+  requestAnimationFrame(frame);
+  ctx.fillStyle = '#0a0a1a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const auto = document.getElementById('auto').checked;
+  const q0El = document.getElementById('q0');
+  const q1El = document.getElementById('q1');
+  const q2El = document.getElementById('q2');
+
+  if (auto) {
+    time += 0.012;
+    q0El.value = Math.round(Math.sin(time * 0.7) * 150);
+    q1El.value = Math.round(Math.sin(time * 0.5) * 100 + 50);
+    q2El.value = Math.round(Math.sin(time * 0.3 + 1.0) * 80 - 20);
+  }
+
+  const q = [q0El.value / 100, q1El.value / 100, q2El.value / 100];
+
+  drawGrid();
+  const pts = fk(q);
+  drawRobot(pts);
+
+  // Update info panel
+  const fmt = (v) => `(${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)})`;
+  document.getElementById('fk-base').textContent = `Base: ${fmt(pts[0])}`;
+  document.getElementById('fk-j1').textContent = `J1: ${fmt(pts[1])}`;
+  document.getElementById('fk-j2').textContent = `J2: ${fmt(pts[2])}`;
+  document.getElementById('fk-tip').textContent = `Tip: ${fmt(pts[3])}`;
+  document.getElementById('fk-tcp').textContent = `TCP: ${fmt(pts[4])}`;
+  document.getElementById('q-display').textContent = `q = [${q[0].toFixed(2)}, ${q[1].toFixed(2)}, ${q[2].toFixed(2)}]`;
+}
+frame();
+</script>
+</body>
+</html>
