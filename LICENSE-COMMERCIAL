@@ -1,0 +1,86 @@
+﻿GEOALG COMMERCIAL LICENSE
+Copyright (c) 2026 071476
+
+=== TERMS OF THE COMMERCIAL LICENSE ===
+
+1. LICENSE GRANT
+   The Licensor ("071476") grants the Licensee a non-exclusive, worldwide,
+   perpetual license to use, modify, integrate, and distribute geoalg in
+   commercial and proprietary products, without the obligation to publish
+   derived source code.
+
+2. SCOPE
+   2.1. Unlimited use in commercial products.
+   2.2. Modification of source code without share-alike obligations.
+   2.3. Integration into proprietary (closed-source) software.
+   2.4. Distribution in embedded products (IoT, robots, vehicles).
+   2.5. Use in SaaS services without additional restrictions.
+
+3. RESTRICTIONS
+   3.1. Redistribution of geoalg as a standalone library under a
+        license other than AGPL-3.0 or this commercial license is
+        not permitted.
+   3.2. Reselling the license to third parties is not permitted.
+   3.3. Using the "geoalg" name for unofficial derivatives is not
+        permitted.
+
+4. SUPPORT (optional, depending on the selected plan)
+   4.1. Email support: response within 48 business hours.
+   4.2. Priority support: response within 24 business hours.
+   4.3. Custom consulting: quoted separately.
+
+5. WARRANTY
+   5.1. The software is provided "AS IS", without warranty of any kind.
+   5.2. The Licensor shall not be liable for damages arising from use.
+
+6. UPDATES
+   6.1. The license covers all minor versions within the current major.
+   6.2. Major versions may require license renewal.
+
+7. TERMINATION
+   7.1. This license terminates automatically if the Licensee violates
+        any term.
+   7.2. Upon termination, the Licensee must stop using geoalg.
+
+8. GOVERNING LAW
+   This license is governed by applicable laws without regard to
+   conflict of law principles.
+
+=== COMMERCIAL LICENSE PLANS ===
+
+STARTER - $19/month
+  - 1 developer
+  - 1 commercial product
+  - Email support (48h)
+  - Updates within the current major version
+
+TEAM - $49/month
+  - Up to 3 developers
+  - Unlimited products
+  - Priority support (24h)
+  - All version updates
+  - 1 hour of consulting/month
+
+BUSINESS - $149/month
+  - Up to 10 developers
+  - Unlimited products
+  - Priority support (24h)
+  - All version updates
+  - 4 hours of consulting/month
+
+ENTERPRISE - Contact us
+  - Everything above
+  - Unlimited developers
+  - Extended source code access
+  - Custom integration
+  - Tailored contract
+  - SLA guaranteed
+
+=== DISCOUNTS ===
+  - Annual billing: 2 months free (pay for 10, use 12).
+  - Open source projects: free under AGPL-3.0.
+  - Students & academics: free under AGPL-3.0.
+
+=== CONTACT ===
+  GitHub: https://github.com/071476/geoalg
+  Email: ali-gafer@hotmail.com
