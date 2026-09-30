@@ -1,0 +1,258 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>geoalg — Demo WebAssembly</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: #eee; font-family: 'Consolas', monospace; overflow: hidden; }
+#canvas { width: 100vw; height: 100vh; display: block; }
+#hud {
+    position: absolute; top: 20px; left: 20px;
+    background: rgba(26,26,46,0.9); border: 1px solid #00d4ff;
+    border-radius: 12px; padding: 20px; min-width: 320px;
+}
+h1 { color: #00d4ff; font-size: 1.4em; margin-bottom: 8px; }
+h2 { color: #ff6b6b; font-size: 0.9em; margin: 12px 0 4px; }
+p { font-size: 0.8em; color: #aaa; margin-bottom: 8px; }
+.btn {
+    display: inline-block; padding: 8px 16px; margin: 4px;
+    background: #00d4ff; color: #1a1a2e; border: none;
+    border-radius: 6px; cursor: pointer; font-family: inherit;
+    font-size: 0.85em; font-weight: bold;
+}
+.btn:hover { background: #00b4d8; }
+.btn.active { background: #ff6b6b; color: #fff; }
+#output {
+    background: #0d0d1a; border: 1px solid #333; border-radius: 6px;
+    padding: 10px; margin-top: 8px; font-size: 0.75em;
+    white-space: pre; color: #0f0; max-height: 120px; overflow-y: auto;
+}
+input[type=range] {
+    width: 100%; margin: 4px 0; accent-color: #00d4ff;
+}
+label { font-size: 0.75em; color: #888; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="hud">
+<h1>geoalg WASM</title></h1>
+<p>Algebra geometrica en WebAssembly</p>
+<h2>Controles</h2>
+<button class="btn" onclick="setMode('rotate')">Rotar</button>
+<button class="btn" onclick="setMode('translate')">Trasladar</button>
+<button class="btn" onclick="setMode('orbit')">Orbitar</button>
+<button class="btn" onclick="setMode('ik')">Brazo IK</button>
+<h2>Velocidad</h2>
+<input type="range" id="speed" min="0.1" max="5" step="0.1" value="1.0" oninput="speed=this.value">
+<label id="speedLabel">1.0x</label>
+<h2>Motor (8 componentes)</h2>
+<div id="output">Cargando WASM...</div>
+</div>
+<script type="module">
+import init, { WasmMotor, version } from "./crates/geoalg-wasm/pkg/geoalg_wasm.js";
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+
+let speed = 1.0;
+let mode = "rotate";
+let motor = null;
+let scene, camera, renderer, cube, robotArm, ground, grid;
+
+window.setMode = (m) => {
+    mode = m;
+    document.querySelectorAll(".btn").forEach(b => b.classList.remove("active"));
+    event.target.classList.add("active");
+};
+window.speed = speed;
+
+document.getElementById("speed").addEventListener("input", (e) => {
+    speed = parseFloat(e.target.value);
+    window.speed = speed;
+    document.getElementById("speedLabel").textContent = speed.toFixed(1) + "x";
+});
+
+async function main() {
+    await init();
+    motor = new WasmMotor();
+    const ver = version();
+    document.getElementById("output").textContent = ver + "\nInicializando escena...";
+
+    // === THREE.JS ===
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a2e);
+    scene.fog = new THREE.Fog(0x1a1a2e, 10, 30);
+
+    camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 100);
+    camera.position.set(5, 4, 5);
+    camera.lookAt(0, 1, 0);
+
+    renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("canvas"), antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+
+    // Luces
+    const ambient = new THREE.AmbientLight(0x404060, 0.5);
+    scene.add(ambient);
+    const dir = new THREE.DirectionalLight(0xffffff, 1.5);
+    dir.position.set(5, 8, 5);
+    dir.castShadow = true;
+    scene.add(dir);
+    const point = new THREE.PointLight(0x00d4ff, 1, 15);
+    point.position.set(-3, 4, -3);
+    scene.add(point);
+
+    // Grid
+    grid = new THREE.GridHelper(10, 20, 0x333355, 0x222244);
+    scene.add(grid);
+
+    // Suelo
+    const groundGeo = new THREE.PlaneGeometry(10, 10);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x222244, transparent: true, opacity: 0.5 });
+    ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Cubo principal (controlado por geoalg)
+    const cubeGeo = new THREE.BoxGeometry(1, 1, 1);
+    const cubeMat = new THREE.MeshStandardMaterial({ color: 0x00d4ff, metalness: 0.3, roughness: 0.4 });
+    cube = new THREE.Mesh(cubeGeo, cubeMat);
+    cube.castShadow = true;
+    cube.position.set(0, 1, 0);
+    scene.add(cube);
+
+    // Borde del cubo
+    const edges = new THREE.EdgesGeometry(cubeGeo);
+    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x00ffff }));
+    cube.add(line);
+
+    // Brazo robot (3 eslabones)
+    robotArm = new THREE.Group();
+    robotArm.position.set(-3, 0, 0);
+    scene.add(robotArm);
+
+    let parent = robotArm;
+    for (let i = 0; i < 3; i++) {
+        const seg = new THREE.Group();
+        seg.position.y = i === 0 ? 0.5 : 1.2;
+
+        const geo = new THREE.CylinderGeometry(0.12, 0.15, 1.2, 8);
+        const mat = new THREE.MeshStandardMaterial({
+            color: new THREE.Color().setHSL(0.55 + i * 0.1, 0.8, 0.5),
+            metalness: 0.5, roughness: 0.3
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.y = 0.6;
+        mesh.castShadow = true;
+        seg.add(mesh);
+
+        // Esfera de articulacion
+        const joint = new THREE.Mesh(
+            new THREE.SphereGeometry(0.18, 12, 12),
+            new THREE.MeshStandardMaterial({ color: 0xff6b6b, metalness: 0.7, roughness: 0.2 })
+        );
+        seg.add(joint);
+
+        parent.add(seg);
+        parent = seg;
+    }
+
+    // Esferas flotantes
+    for (let i = 0; i < 20; i++) {
+        const s = new THREE.Mesh(
+            new THREE.SphereGeometry(0.05 + Math.random() * 0.1, 8, 8),
+            new THREE.MeshStandardMaterial({
+                color: new THREE.Color().setHSL(Math.random(), 0.7, 0.5),
+                transparent: true, opacity: 0.6
+            })
+        );
+        s.position.set(
+            (Math.random() - 0.5) * 8,
+            Math.random() * 4 + 0.5,
+            (Math.random() - 0.5) * 8
+        );
+        scene.add(s);
+    }
+
+    // Resize
+    window.addEventListener("resize", () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+    });
+
+    animate(0);
+}
+
+function animate(t) {
+    requestAnimationFrame(animate);
+    const time = t * 0.001 * speed;
+
+    // Crear motor segun modo
+    if (mode === "rotate") {
+        motor = WasmMotor.from_rotation(0, 1, 0, time * 0.5);
+    } else if (mode === "translate") {
+        motor = WasmMotor.from_translation(
+            Math.sin(time) * 2,
+            Math.abs(Math.sin(time * 2)) * 1.5,
+            Math.cos(time) * 2
+        );
+    } else if (mode === "orbit") {
+        const rot = WasmMotor.from_rotation(0, 1, 0, time);
+        const trans = WasmMotor.from_translation(Math.cos(time) * 2, 1, Math.sin(time) * 2);
+        motor = trans.compose(rot);
+    } else if (mode === "ik") {
+        // Brazo IK con motores
+        motor = WasmMotor.from_pose(
+            Math.sin(time) * 1.5,
+            1 + Math.sin(time * 2) * 0.5,
+            Math.cos(time) * 1.5,
+            1, 0, 0, 0
+        );
+        // Animar brazo robot
+        const children = robotArm.children;
+        if (children.length >= 3) {
+            children[0].rotation.z = Math.sin(time) * 0.6;
+            children[1].rotation.z = Math.sin(time * 1.5) * 0.8;
+            children[2].rotation.z = Math.sin(time * 2) * 0.4;
+        }
+    }
+
+    // Aplicar motor al cubo via WASM
+    const pos = motor.to_position();
+    const quat = motor.to_quat();
+    const mat4 = motor.to_mat4();
+
+    cube.position.set(pos[0], pos[1] + 1, pos[2]);
+    // wasm_bindgen devuelve [w,x,y,z], Three.js usa [x,y,z,w]
+    cube.quaternion.set(quat[1], quat[2], quat[3], quat[0]);
+
+    // Camara orbita lentamente
+    camera.position.x = Math.sin(time * 0.1) * 7;
+    camera.position.z = Math.cos(time * 0.1) * 7;
+    camera.position.y = 4;
+    camera.lookAt(0, 1, 0);
+
+    // HUD
+    if (motor && Math.floor(time * 10) % 3 === 0) {
+        const d = [];
+        for (let i = 0; i < 8; i++) d.push(motor.get(i).toFixed(4));
+        document.getElementById("output").textContent =
+            version() + "\n" +
+            "modo: " + mode + "\n" +
+            "motor: [" + d.join(", ") + "]\n" +
+            "pos: [" + pos.map(v => v.toFixed(2)).join(", ") + "]\n" +
+            "quat: [" + quat.map(v => v.toFixed(3)).join(", ") + "]";
+    }
+
+    renderer.render(scene, camera);
+}
+
+main().catch(e => {
+    document.getElementById("output").textContent = "Error: " + e.message;
+});
+</script>
+</body>
+</html>
