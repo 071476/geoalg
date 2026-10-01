@@ -1,0 +1,414 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>geoalg — Geometric Algebra in Rust</title>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Fira+Code:wght@400;600&display=swap");
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a1a;--bg2:#12122a;--bg3:#1a1a3e;--cyan:#00d4ff;--pink:#ff6b9d;--purple:#a855f7;--green:#10b981;--orange:#f59e0b;--text:#e2e8f0;--text2:#94a3b8;--border:#2a2a4a}
+html{scroll-behavior:smooth}body{font-family:Inter,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
+nav{position:fixed;top:0;width:100%;z-index:100;background:rgba(10,10,26,.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);padding:16px 40px;display:flex;align-items:center;justify-content:space-between}
+.nav-logo{font-size:1.5em;font-weight:800;color:var(--cyan);text-decoration:none;letter-spacing:-1px}.nav-logo span{color:var(--pink)}
+.nav-links{display:flex;gap:28px;align-items:center}.nav-links a{color:var(--text2);text-decoration:none;font-size:.9em;font-weight:500;transition:color .3s}.nav-links a:hover{color:var(--cyan)}
+.btn-primary{background:var(--cyan);color:var(--bg);padding:10px 24px;border-radius:8px;font-weight:700;text-decoration:none;font-size:.9em;transition:all .3s;border:none;cursor:pointer}
+.btn-primary:hover{background:#00b4d8;transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,212,255,.3)}
+.btn-secondary{background:transparent;color:var(--cyan);padding:10px 24px;border-radius:8px;font-weight:600;text-decoration:none;font-size:.9em;border:1px solid var(--cyan);transition:all .3s}
+.btn-secondary:hover{background:rgba(0,212,255,.1)}
+.hero{min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:120px 40px 80px;position:relative}
+.hero-bg{position:absolute;inset:0;overflow:hidden}
+.hero-bg::before{content:"";position:absolute;width:600px;height:600px;background:radial-gradient(circle,rgba(0,212,255,.15),transparent);top:-100px;left:-100px;border-radius:50%}
+.hero-bg::after{content:"";position:absolute;width:500px;height:500px;background:radial-gradient(circle,rgba(168,85,247,.12),transparent);bottom:-100px;right:-100px;border-radius:50%}
+.hero-content{position:relative;z-index:2;max-width:900px}
+.hero-badge{display:inline-block;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.3);color:var(--cyan);padding:6px 16px;border-radius:20px;font-size:.85em;font-weight:600;margin-bottom:24px;letter-spacing:1px}
+.hero h1{font-size:4em;font-weight:800;line-height:1.1;margin-bottom:20px;letter-spacing:-2px}
+.hero h1 .gradient{background:linear-gradient(135deg,var(--cyan),var(--purple),var(--pink));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hero p{font-size:1.3em;color:var(--text2);line-height:1.7;margin-bottom:40px;max-width:700px;margin-left:auto;margin-right:auto}
+.hero-buttons{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.hero-stats{display:flex;gap:48px;justify-content:center;margin-top:60px;flex-wrap:wrap}
+.stat{text-align:center}.stat .num{font-size:2.2em;font-weight:800;color:var(--cyan);font-family:"Fira Code",monospace}.stat .label{font-size:.85em;color:var(--text2);margin-top:4px}
+section{padding:100px 40px}.section-title{text-align:center;font-size:2.5em;font-weight:800;margin-bottom:16px;letter-spacing:-1px}.section-sub{text-align:center;font-size:1.15em;color:var(--text2);margin-bottom:60px;max-width:700px;margin-left:auto;margin-right:auto}
+.features{background:var(--bg2)}.features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px;max-width:1200px;margin:0 auto}
+.feature-card{background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:32px;transition:all .3s}
+.feature-card:hover{transform:translateY(-4px);border-color:var(--cyan);box-shadow:0 12px 40px rgba(0,212,255,.15)}
+.feature-icon{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.5em;margin-bottom:16px}
+.feature-card h3{font-size:1.2em;font-weight:700;margin-bottom:8px}.feature-card p{font-size:.95em;color:var(--text2);line-height:1.6}
+.platforms-grid{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;max-width:900px;margin:0 auto}
+.platform-pill{display:flex;align-items:center;gap:10px;background:var(--bg3);border:1px solid var(--border);padding:14px 28px;border-radius:12px;font-weight:600;transition:all .3s;cursor:pointer;text-decoration:none;color:var(--text)}
+.platform-pill:hover{border-color:var(--cyan);transform:translateY(-2px);background:rgba(0,212,255,.08);color:var(--cyan)}
+.platform-pill .emoji{font-size:1.4em}.platform-pill .arrow{margin-left:4px;font-size:.8em;opacity:0;transition:opacity .3s}.platform-pill:hover .arrow{opacity:1}
+.modal-overlay{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.7);backdrop-filter:blur(8px);align-items:center;justify-content:center;padding:20px}
+.modal-overlay.active{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:20px;padding:40px;max-width:650px;width:100%;max-height:85vh;overflow-y:auto;position:relative}
+.modal-close{position:absolute;top:16px;right:16px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);width:36px;height:36px;border-radius:8px;cursor:pointer;font-size:1.2em;display:flex;align-items:center;justify-content:center;transition:all .3s}
+.modal-close:hover{background:var(--pink);color:#fff;border-color:var(--pink)}
+.modal .modal-icon{font-size:2.5em;margin-bottom:12px}.modal h2{font-size:1.6em;margin-bottom:8px}.modal .modal-desc{color:var(--text2);margin-bottom:24px;line-height:1.6}
+.modal .modal-step{margin-bottom:20px}.modal .modal-step h3{font-size:.9em;color:var(--cyan);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
+.modal .modal-code{background:#0d0d1a;border:1px solid var(--border);border-radius:10px;padding:16px;font-family:"Fira Code",monospace;font-size:.82em;color:var(--green);overflow-x:auto;white-space:pre;line-height:1.6}
+.modal .modal-link{display:inline-block;margin-top:8px;color:var(--cyan);text-decoration:none;font-size:.85em;font-weight:600}
+.modal .modal-footer{margin-top:24px;padding-top:20px;border-top:1px solid var(--border);display:flex;gap:12px}
+.demo{background:var(--bg2)}.demo-container{max-width:1000px;margin:0 auto;background:var(--bg3);border:1px solid var(--border);border-radius:20px;overflow:hidden}
+.demo-header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.demo-dots{display:flex;gap:6px}.demo-dot{width:10px;height:10px;border-radius:50%}.demo-dot.r{background:#ff5f57}.demo-dot.y{background:#ffbd2e}.demo-dot.g{background:#28c840}
+.demo-title{color:var(--text2);font-family:"Fira Code",monospace;font-size:.85em}
+.demo-body{padding:0;position:relative;min-height:400px;background:#0d0d1a}.demo-body canvas{width:100%;height:400px;display:block}
+.demo-controls{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.demo-btn{padding:8px 20px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;font-family:"Fira Code",monospace;font-size:.85em;transition:all .3s}
+.demo-btn:hover,.demo-btn.active{border-color:var(--cyan);color:var(--cyan);background:rgba(0,212,255,.1)}
+.pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px;max-width:1100px;margin:0 auto}
+.price-card{background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:36px;text-align:center;transition:all .3s;position:relative}
+.price-card:hover{transform:translateY(-4px)}.price-card.featured{border-color:var(--cyan);box-shadow:0 12px 40px rgba(0,212,255,.2)}
+.price-card.featured::before{content:"MOST POPULAR";position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:var(--cyan);color:var(--bg);padding:4px 16px;border-radius:20px;font-size:.75em;font-weight:700;letter-spacing:1px}
+.price-card .plan{font-size:.9em;color:var(--text2);text-transform:uppercase;letter-spacing:2px;font-weight:600}
+.price-card .price{font-size:3em;font-weight:800;margin:12px 0;color:var(--cyan);font-family:"Fira Code",monospace}.price-card .price span{font-size:.4em;color:var(--text2);font-weight:400}
+.price-card ul{list-style:none;margin:24px 0;text-align:left}.price-card ul li{padding:8px 0;font-size:.9em;color:var(--text2);display:flex;align-items:center;gap:10px}.price-card ul li::before{content:"\2713";color:var(--green);font-weight:700}
+.price-card .btn-primary,.price-card .btn-secondary{width:100%;display:block;text-align:center}
+.licenses{background:var(--bg2)}.license-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px;max-width:800px;margin:0 auto}
+.license-card{background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:32px;text-align:center}.license-card h3{font-size:1.3em;margin-bottom:12px}
+.license-card .badge{display:inline-block;padding:4px 12px;border-radius:20px;font-size:.8em;font-weight:700;margin-bottom:16px}
+.badge-free{background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3)}
+.badge-paid{background:rgba(245,158,11,.15);color:var(--orange);border:1px solid rgba(245,158,11,.3)}
+.license-card p{color:var(--text2);line-height:1.6;font-size:.9em}
+.cta{text-align:center;padding:120px 40px;background:linear-gradient(135deg,rgba(0,212,255,.08),rgba(168,85,247,.08))}
+.cta h2{font-size:2.8em;font-weight:800;margin-bottom:16px}.cta p{font-size:1.15em;color:var(--text2);margin-bottom:40px}
+footer{border-top:1px solid var(--border);padding:40px;text-align:center;color:var(--text2);font-size:.85em}
+footer a{color:var(--cyan);text-decoration:none}footer a:hover{text-decoration:underline}
+@media(max-width:768px){.hero h1{font-size:2.5em}.hero p{font-size:1.1em}section{padding:60px 20px}nav{padding:12px 20px}.nav-links{display:none}}
+</style>
+</head>
+<body>
+<nav>
+  <a href="#" class="nav-logo">geo<span>alg</span></a>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#platforms">Platforms</a>
+    <a href="#demo">Demo</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#licenses">Licenses</a>
+    <a href="https://github.com/071476/geoalg" target="_blank">GitHub</a>
+    <a href="#pricing" class="btn-primary">Get Started</a>
+  </div>
+</nav>
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-content">
+    <div class="hero-badge">GEOMETRIC ALGEBRA / RUST / WASM</div>
+    <h1>Move anything in 3D with <span class="gradient">one motor</span></h1>
+    <p>geoalg is a Rust library for geometric algebra. Precise 3D motion for robots, game characters, and cameras. Works in Unity, Unreal, browsers, and more.</p>
+    <div class="hero-buttons">
+      <a href="https://github.com/071476/geoalg" class="btn-primary" target="_blank">Star on GitHub</a>
+      <a href="#demo" class="btn-secondary">Try Live Demo</a>
+    </div>
+    <div class="hero-stats">
+      <div class="stat"><div class="num">8</div><div class="label">Crates</div></div>
+      <div class="stat"><div class="num">128+</div><div class="label">Tests</div></div>
+      <div class="stat"><div class="num">6</div><div class="label">Platforms</div></div>
+      <div class="stat"><div class="num">22KB</div><div class="label">WASM</div></div>
+    </div>
+  </div>
+</section>
+<section class="features" id="features">
+  <h2 class="section-title">Why geoalg?</h2>
+  <p class="section-sub">Matrices are a calculator. Motors are a supercomputer.</p>
+  <div class="features-grid">
+    <div class="feature-card"><div class="feature-icon" style="background:rgba(0,212,255,.15);color:var(--cyan)">&#9678;</div><h3>One Motor = Rotate + Translate</h3><p>Traditional libs need multiple matrices. geoalg combines rotation and translation into a single 8-component motor.</p></div>
+    <div class="feature-card"><div class="feature-icon" style="background:rgba(168,85,247,.15);color:var(--purple)">&#129302;</div><h3>Robotics Ready</h3><p>Forward kinematics, joint limits, TCP tools, trajectories, collision detection.</p></div>
+    <div class="feature-card"><div class="feature-icon" style="background:rgba(255,107,157,.15);color:var(--pink)">&#127918;</div><h3>Game Engine Compatible</h3><p>Unity (C#), Unreal (C++), Bevy (Rust), WebGL (WASM). Drop-in bindings.</p></div>
+    <div class="feature-card"><div class="feature-icon" style="background:rgba(16,185,129,.15);color:var(--green)">&#8962;</div><h3>Smooth Interpolation</h3><p>Screw theory interpolation. No gimbal lock, no singularities.</p></div>
+    <div class="feature-card"><div class="feature-icon" style="background:rgba(245,158,11,.15);color:var(--orange)">&#9881;</div><h3>Calculus Built-in</h3><p>Derivatives, gradients, divergence, curl, Stokes theorem, dual numbers.</p></div>
+    <div class="feature-card"><div class="feature-icon" style="background:rgba(0,212,255,.15);color:var(--cyan)">&#127760;</div><h3>WebAssembly Ready</h3><p>Runs in any browser at 22KB. No plugins, no install.</p></div>
+  </div>
+</section>
+<section id="platforms">
+  <h2 class="section-title">Works Everywhere</h2>
+  <p class="section-sub">Click any platform to see installation and code example.</p>
+  <div class="platforms-grid">
+    <div class="platform-pill" onclick="openModal('rust')"><span class="emoji">&#129408;</span> Rust <span class="arrow">&rarr;</span></div>
+    <div class="platform-pill" onclick="openModal('wasm')"><span class="emoji">&#127760;</span> WebAssembly <span class="arrow">&rarr;</span></div>
+    <div class="platform-pill" onclick="openModal('unity')"><span class="emoji">&#128309;</span> Unity (C#) <span class="arrow">&rarr;</span></div>
+    <div class="platform-pill" onclick="openModal('unreal')"><span class="emoji">&#11035;</span> Unreal (C++) <span class="arrow">&rarr;</span></div>
+    <div class="platform-pill" onclick="openModal('bevy')"><span class="emoji">&#9881;</span> Bevy <span class="arrow">&rarr;</span></div>
+    <div class="platform-pill" onclick="openModal('cpp')"><span class="emoji">&#128230;</span> C / C++ <span class="arrow">&rarr;</span></div>
+    <div class="platform-pill" onclick="openModal('ros')"><span class="emoji">&#129302;</span> ROS / glTF <span class="arrow">&rarr;</span></div>
+    <div class="platform-pill" onclick="openModal('opengl')"><span class="emoji">&#127918;</span> OpenGL / Vulkan <span class="arrow">&rarr;</span></div>
+  </div>
+</section>
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal"><button class="modal-close" onclick="forceCloseModal()">&#10005;</button><div id="modalBody"></div></div>
+</div>
+<section class="demo" id="demo">
+  <h2 class="section-title">Live Demo</h2>
+  <p class="section-sub">geoalg motors with collision detection. Powered by WebAssembly.</p>
+  <div class="demo-container">
+    <div class="demo-header">
+      <div class="demo-dots"><div class="demo-dot r"></div><div class="demo-dot y"></div><div class="demo-dot g"></div></div>
+      <div class="demo-title">geoalg-wasm live 3D with collision</div>
+    </div>
+    <div class="demo-body"><canvas id="demoCanvas"></canvas></div>
+    <div class="demo-controls">
+      <button class="demo-btn active" onclick="setDemoMode('rotate')">Rotar</button>
+      <button class="demo-btn" onclick="setDemoMode('translate')">Trasladar</button>
+      <button class="demo-btn" onclick="setDemoMode('orbit')">Orbitar</button>
+      <button class="demo-btn" onclick="setDemoMode('ik')">Brazo IK</button>
+      <button class="demo-btn" onclick="setDemoMode('stokes')">Stokes</button>
+    </div>
+  </div>
+</section>
+<section id="pricing">
+  <h2 class="section-title">Simple Pricing</h2>
+  <p class="section-sub">Start free. Upgrade when you need commercial support.</p>
+  <div class="pricing-grid">
+    <div class="price-card">
+      <div class="plan">Free</div><div class="price">$0</div>
+      <ul><li>Full geoalg library</li><li>Open source (AGPL-3.0)</li><li>All platforms</li><li>Community support</li></ul>
+      <a href="https://github.com/071476/geoalg" class="btn-secondary" target="_blank">Get on GitHub</a>
+    </div>
+    <div class="price-card featured">
+      <div class="plan">Starter</div><div class="price">$19<span>/mo</span></div>
+      <ul><li>1 developer</li><li>1 commercial product</li><li>Closed-source allowed</li><li>Email support (48h)</li><li>All minor updates</li></ul>
+      <a href="mailto:ali-gafer@hotmail.com?subject=geoalg%20Starter%20License" class="btn-primary">Start Free Trial</a>
+    </div>
+    <div class="price-card">
+      <div class="plan">Team</div><div class="price">$49<span>/mo</span></div>
+      <ul><li>Up to 3 developers</li><li>Unlimited products</li><li>Priority support (24h)</li><li>All updates</li><li>1 hour consulting/month</li></ul>
+      <a href="mailto:ali-gafer@hotmail.com?subject=geoalg%20Team%20License" class="btn-secondary">Contact Us</a>
+    </div>
+    <div class="price-card">
+      <div class="plan">Business</div><div class="price">$149<span>/mo</span></div>
+      <ul><li>Up to 10 developers</li><li>Unlimited products</li><li>Priority support (24h)</li><li>4 hours consulting/month</li></ul>
+      <a href="mailto:ali-gafer@hotmail.com?subject=geoalg%20Business%20License" class="btn-secondary">Contact Us</a>
+    </div>
+  </div>
+</section>
+<section class="licenses" id="licenses">
+  <h2 class="section-title">Dual Licensing</h2>
+  <p class="section-sub">Free for open source. Commercial for proprietary products.</p>
+  <div class="license-grid">
+    <div class="license-card"><div class="badge badge-free">FREE</div><h3>AGPL-3.0</h3><p>Use geoalg for free in open source projects, research, and education. Any modifications must be shared under AGPL-3.0.</p></div>
+    <div class="license-card"><div class="badge badge-paid">COMMERCIAL</div><h3>Commercial License</h3><p>Use geoalg in proprietary, closed-source products. Modify freely without sharing code. From $19/month.</p></div>
+  </div>
+</section>
+<section class="cta">
+  <h2>Ready to move in 3D?</h2>
+  <p>Join developers building the next generation of robotics and games.</p>
+  <div class="hero-buttons">
+    <a href="https://github.com/071476/geoalg" class="btn-primary" target="_blank">Star on GitHub</a>
+    <a href="https://github.com/sponsors/071476" class="btn-secondary" target="_blank">Sponsor</a>
+    <a href="mailto:ali-gafer@hotmail.com?subject=geoalg%20Inquiry" class="btn-secondary">Contact</a>
+  </div>
+</section>
+<footer>
+  <p><strong>geoalg</strong> Geometric Algebra in Rust | <a href="https://github.com/071476/geoalg" target="_blank">GitHub</a> | <a href="https://github.com/sponsors/071476" target="_blank">Sponsors</a> | <a href="mailto:ali-gafer@hotmail.com">Email</a></p>
+  <p style="margin-top:8px">Dual license: <a href="LICENSE-AGPL">AGPL-3.0</a> + <a href="LICENSE-COMMERCIAL">Commercial</a> | (c) 2026 071476</p>
+</footer>
+<script>
+var modals={
+rust:{icon:"Rust",title:"Rust",desc:"Use geoalg directly in any Rust project with Cargo.",steps:[{step:"Add to Cargo.toml",code:'[dependencies]\ngeoalg = { git = "https://github.com/071476/geoalg.git" }'},{step:"Use in your code",code:'use geoalg::prelude::*;\n\nlet m = Motor::identity();\nlet t = Motor::from_translation(1.0, 2.0, 3.0);\nlet r = Motor::from_rotation([0.0, 1.0, 0.0], 90.0_f64.to_radians());\nlet result = t * r;\nlet point = result.apply_point(0.0, 0.0, 0.0);'}],link:"https://github.com/071476/geoalg"},
+wasm:{icon:"WASM",title:"WebAssembly",desc:"Run geoalg in any browser. 22KB, no plugins.",steps:[{step:"Build with wasm-pack",code:"wasm-pack build crates/geoalg-wasm --target web"},{step:"Use in JavaScript",code:'import init, { WasmMotor } from "./geoalg_wasm.js";\n\nawait init();\nlet motor = WasmMotor.from_translation(1, 2, 3);\nlet pos = motor.to_position();'}],link:"https://github.com/071476/geoalg/tree/main/crates/geoalg-wasm"},
+unity:{icon:"Unity",title:"Unity (C#)",desc:"Drop-in C# bindings. Copy Geoalg.cs and the DLL.",steps:[{step:"Install",code:"1. Copy Geoalg.cs to Assets/Scripts/\n2. Copy geoalg_ffi.dll to Assets/Plugins/\n3. Done!"},{step:"Use in C#",code:'using Geoalg;\n\nvar motor = Geoalg.geoalg_motor_identity();\nvar translated = Geoalg.geoalg_motor_from_translation(1.0, 2.0, 3.0);\nGeoalg.ApplyToTransform(ref motor, myTransform);'}],link:"https://github.com/071476/geoalg/blob/main/Geoalg.cs"},
+unreal:{icon:"Unreal",title:"Unreal (C++)",desc:"Standard C header for Unreal Engine.",steps:[{step:"Install",code:"1. Include geoalg.h\n2. Link geoalg_ffi.lib\n3. Done!"},{step:"Use in C++",code:'#include "geoalg.h"\n\nGeoMotor m = geoalg_motor_identity();\nGeoVec3 p = geoalg_motor_apply_point(&m, 0.0, 0.0, 0.0);\nGeoMat4 mat = geoalg_motor_to_mat4(&m);'}],link:"https://github.com/071476/geoalg/blob/main/crates/geoalg-ffi/geoalg.h"},
+bevy:{icon:"Bevy",title:"Bevy (Rust)",desc:"Bridge with glam for Bevy game engine.",steps:[{step:"Add to Cargo.toml",code:'[dependencies]\ngeoalg-compat = { git = "https://github.com/071476/geoalg.git" }\nglam = "0.27"'},{step:"Use with glam",code:'use geoalg_compat::glam_bridge::*;\n\nlet motor = Motor::from_translation(1.0, 2.0, 3.0);\nlet transform = motor_to_glam_transform(&motor);'}],link:"https://github.com/071476/geoalg/tree/main/crates/geoalg-compat"},
+cpp:{icon:"C++",title:"C / C++",desc:"Standard C header for any project.",steps:[{step:"Install",code:'#include "geoalg.h"\n// Link geoalg_ffi.dll or libgeoalg_ffi.so'},{step:"Use in C",code:'GeoMotor m = geoalg_motor_from_rotation(0, 1, 0, 1.5708);\nGeoMotor t = geoalg_motor_from_translation(1, 0, 0);\nGeoMotor combined = geoalg_motor_compose(&m, &t);'}],link:"https://github.com/071476/geoalg/blob/main/crates/geoalg-ffi/geoalg.h"},
+ros:{icon:"ROS",title:"ROS / glTF",desc:"Export poses in ROS and glTF format.",steps:[{step:"Get a pose",code:'GeoMotor m = geoalg_motor_from_rotation(0, 1, 0, 1.5708);\nGeoVec3 pos = geoalg_motor_to_pose(&m);\nGeoQuat quat = geoalg_motor_to_quat(&m);'},{step:"Use in ROS",code:'geometry_msgs/Pose pose\npose.position.x = pos.x\npose.orientation.w = quat.w'}],link:"https://github.com/071476/geoalg"},
+opengl:{icon:"OpenGL",title:"OpenGL / Vulkan",desc:"Export 4x4 matrices for any graphics API.",steps:[{step:"Get a matrix",code:'GeoMotor m = geoalg_motor_from_rotation(0, 1, 0, 1.5708);\nGeoMat4 mat = geoalg_motor_to_mat4(&m);'},{step:"Use in OpenGL",code:'glUniformMatrix4fv(loc, 1, GL_FALSE, mat.m);'}],link:"https://github.com/071476/geoalg/blob/main/crates/geoalg-ffi/geoalg.h"}
+};
+function openModal(id){
+var d=modals[id];if(!d)return;
+var h='<div class="modal-icon">'+d.icon+'</div><h2>'+d.title+'</h2><p class="modal-desc">'+d.desc+'</p>';
+for(var i=0;i<d.steps.length;i++){
+var s=d.steps[i];
+h+='<div class="modal-step"><h3>Step '+(i+1)+': '+s.step+'</h3><div class="modal-code">'+s.code+'</div></div>';
+}
+h+='<a href="'+d.link+'" target="_blank" class="modal-link">View source on GitHub</a>';
+h+='<div class="modal-footer"><a href="https://github.com/071476/geoalg" target="_blank" class="btn-primary">GitHub</a><a href="mailto:ali-gafer@hotmail.com" class="btn-secondary">Need help?</a></div>';
+document.getElementById("modalBody").innerHTML=h;
+document.getElementById("modalOverlay").classList.add("active");
+document.body.style.overflow="hidden";
+}
+function closeModal(e){if(e.target.id==="modalOverlay")forceCloseModal()}
+function forceCloseModal(){document.getElementById("modalOverlay").classList.remove("active");document.body.style.overflow=""}
+document.addEventListener("keydown",function(e){if(e.key==="Escape")forceCloseModal()});
+</script>
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+import init, { WasmMotor } from "./crates/geoalg-wasm/pkg/geoalg_wasm.js";
+
+var demoMode = "rotate";
+window.setDemoMode = function(m) {
+  demoMode = m;
+  initPhysics();
+  document.querySelectorAll(".demo-btn").forEach(function(b) { b.classList.remove("active"); });
+  event.target.classList.add("active");
+};
+
+var ARM_X = -2.5, ARM_Z = 0;
+var ARM_RADIUS = 1.2;
+var WALL = 3.5, YMIN = 0.5, YMAX = 3.5;
+var pos = [1, 1.5, 1];
+var vel = [2.5, 1.8, 2.0];
+
+function initPhysics() {
+  pos = [1, 1.5, 1];
+  vel = [2.5, 1.8, 2.0];
+}
+
+function physicsStep(dt) {
+  pos[0] += vel[0] * dt;
+  pos[1] += vel[1] * dt;
+  pos[2] += vel[2] * dt;
+
+  if (pos[0] > WALL)  { pos[0] = WALL;  vel[0] = -Math.abs(vel[0]) * 0.85; }
+  if (pos[0] < -WALL) { pos[0] = -WALL; vel[0] =  Math.abs(vel[0]) * 0.85; }
+  if (pos[2] > WALL)  { pos[2] = WALL;  vel[2] = -Math.abs(vel[2]) * 0.85; }
+  if (pos[2] < -WALL) { pos[2] = -WALL; vel[2] =  Math.abs(vel[2]) * 0.85; }
+  if (pos[1] > YMAX)  { pos[1] = YMAX;  vel[1] = -Math.abs(vel[1]) * 0.85; }
+  if (pos[1] < YMIN)  { pos[1] = YMIN;  vel[1] =  Math.abs(vel[1]) * 0.85; }
+
+  var dx = pos[0] - ARM_X;
+  var dz = pos[2] - ARM_Z;
+  var distXZ = Math.sqrt(dx * dx + dz * dz);
+  var minDist = ARM_RADIUS;
+
+  if (distXZ < minDist && pos[1] < 3.8) {
+    var nx = dx / (distXZ || 0.001);
+    var nz = dz / (distXZ || 0.001);
+    pos[0] = ARM_X + nx * minDist;
+    pos[2] = ARM_Z + nz * minDist;
+    var dot = vel[0] * nx + vel[2] * nz;
+    vel[0] -= 1.8 * dot * nx;
+    vel[2] -= 1.8 * dot * nz;
+  }
+
+  vel[0] *= 0.999;
+  vel[1] *= 0.999;
+  vel[2] *= 0.999;
+}
+
+async function main() {
+  await init();
+  var canvas = document.getElementById("demoCanvas");
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0d0d1a);
+  scene.fog = new THREE.Fog(0x0d0d1a, 8, 22);
+  var camera = new THREE.PerspectiveCamera(55, canvas.clientWidth / canvas.clientHeight, 0.1, 50);
+  camera.position.set(5, 4, 5);
+  camera.lookAt(0, 1.5, 0);
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+  renderer.setPixelRatio(devicePixelRatio);
+
+  scene.add(new THREE.AmbientLight(0x333355, 0.6));
+  var dir = new THREE.DirectionalLight(0xffffff, 1.2);
+  dir.position.set(5, 8, 5);
+  scene.add(dir);
+  var p1 = new THREE.PointLight(0x00d4ff, 1.2, 12);
+  p1.position.set(-3, 4, -3);
+  scene.add(p1);
+  var p2 = new THREE.PointLight(0xa855f7, 0.8, 12);
+  p2.position.set(3, 2, 3);
+  scene.add(p2);
+  scene.add(new THREE.GridHelper(8, 16, 0x222244, 0x1a1a3a));
+
+  var cubeGeo = new THREE.BoxGeometry(0.7, 0.7, 0.7);
+  var cube = new THREE.Mesh(cubeGeo, new THREE.MeshStandardMaterial({ color: 0x00d4ff, metalness: 0.3, roughness: 0.4 }));
+  cube.position.set(0, 1.5, 0);
+  scene.add(cube);
+  cube.add(new THREE.LineSegments(new THREE.EdgesGeometry(cubeGeo), new THREE.LineBasicMaterial({ color: 0x00ffff })));
+
+  var arm = new THREE.Group();
+  arm.position.set(ARM_X, 0, ARM_Z);
+  scene.add(arm);
+  var parent = arm;
+  for (var i = 0; i < 3; i++) {
+    var seg = new THREE.Group();
+    seg.position.y = i === 0 ? 0.5 : 1.1;
+    var mesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.15, 1.1, 8),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.55 + i * 0.08, 0.7, 0.5), metalness: 0.5 })
+    );
+    mesh.position.y = 0.55;
+    seg.add(mesh);
+    seg.add(new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12), new THREE.MeshStandardMaterial({ color: 0xff6b9d, metalness: 0.6 })));
+    parent.add(seg);
+    parent = seg;
+  }
+
+  for (var j = 0; j < 12; j++) {
+    var s = new THREE.Mesh(
+      new THREE.SphereGeometry(0.03 + Math.random() * 0.06, 8, 8),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(Math.random(), 0.5, 0.5), transparent: true, opacity: 0.35 })
+    );
+    s.position.set((Math.random() - 0.5) * 6, Math.random() * 3 + 0.5, (Math.random() - 0.5) * 6);
+    scene.add(s);
+  }
+
+  var lastTime = 0;
+  initPhysics();
+
+  function animate(t) {
+    requestAnimationFrame(animate);
+    var time = t * 0.001;
+    var dt = Math.min(time - lastTime, 0.05);
+    lastTime = time;
+    var motor;
+
+    if (demoMode === "rotate") {
+      motor = WasmMotor.from_rotation(0, 1, 0, time * 0.6);
+    } else if (demoMode === "translate") {
+      physicsStep(dt);
+      motor = WasmMotor.from_translation(pos[0], pos[1], pos[2]);
+    } else if (demoMode === "orbit") {
+      var orbitR = 2.8;
+      var tx = Math.cos(time * 0.8) * orbitR;
+      var tz = Math.sin(time * 0.8) * orbitR;
+      var ty = 1.2 + Math.sin(time * 1.5) * 0.5;
+      var k = 3.0;
+      vel[0] += (tx - pos[0]) * k * dt;
+      vel[1] += (ty - pos[1]) * k * dt;
+      vel[2] += (tz - pos[2]) * k * dt;
+      vel[0] *= 0.92;
+      vel[1] *= 0.92;
+      vel[2] *= 0.92;
+      physicsStep(dt);
+      motor = WasmMotor.from_translation(pos[0], pos[1], pos[2]);
+    } else if (demoMode === "ik") {
+      motor = WasmMotor.from_pose(Math.sin(time) * 1.5, 1 + Math.sin(time * 2) * 0.5, Math.cos(time) * 1.5, 1, 0, 0, 0);
+      var kids = arm.children;
+      if (kids.length >= 3) {
+        kids[0].rotation.z = Math.sin(time) * 0.6;
+        kids[1].rotation.z = Math.sin(time * 1.5) * 0.8;
+        kids[2].rotation.z = Math.sin(time * 2) * 0.4;
+      }
+    } else if (demoMode === "stokes") {
+      motor = WasmMotor.from_rotation(Math.cos(time * 0.5), 1, Math.sin(time * 0.5), time * 0.8);
+      var kids2 = arm.children;
+      if (kids2.length >= 3) {
+        kids2[0].rotation.z = Math.cos(time * 0.7) * 0.8;
+        kids2[1].rotation.z = Math.sin(time) * 0.6;
+        kids2[2].rotation.x = Math.sin(time * 1.3) * 0.5;
+      }
+    }
+
+    var mPos = motor.to_position();
+    var quat = motor.to_quat();
+    cube.position.set(mPos[0], mPos[1] + 1, mPos[2]);
+    cube.quaternion.set(quat[1], quat[2], quat[3], quat[0]);
+
+    camera.position.x = Math.sin(time * 0.08) * 7;
+    camera.position.z = Math.cos(time * 0.08) * 7;
+    camera.lookAt(0, 1.5, 0);
+    renderer.render(scene, camera);
+  }
+
+  window.addEventListener("resize", function() {
+    camera.aspect = canvas.clientWidth / canvas.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+  });
+  animate(0);
+}
+main().catch(function(e) { console.error(e); });
+</script>
+</body>
+</html>
