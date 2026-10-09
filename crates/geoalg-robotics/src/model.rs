@@ -1,6 +1,13 @@
 // Model: describe un robot con sus articulaciones y eslabones.
 // En vez de matrices DH, cada articulacion es un motor: el eje donde
 // gira (o desliza) y el desplazamiento hasta la siguiente articulacion.
+//
+// IMPORTANTE: todo se mide en el sistema LOCAL de cada articulacion.
+// - `origin` es un punto del eje, medido desde la propia articulacion.
+//   En casi todos los brazos es (0, 0, 0): el eje pasa por la articulacion.
+// - `offset` es el tramo (eslabon) desde esta articulacion hasta la siguiente.
+// No uses posiciones absolutas en `origin`: la posicion de cada articulacion
+// ya la dan los `offset` de las anteriores. Si pones las dos, se cuenta doble.
 
 use geoalg_core::algebra::metric::Metric;
 use geoalg_core::types::line::Line;
@@ -18,7 +25,8 @@ pub enum JointKind {
 
 pub struct Joint {
     pub kind: JointKind,
-    // Eje de rotacion (Revolute) o de desplazamiento (Prismatic).
+    // Eje de rotacion (Revolute) o de desplazamiento (Prismatic),
+    // en el sistema local de la articulacion.
     pub axis: Line,
     // Offset fijo desde esta articulacion hasta la siguiente.
     pub offset: (f64, f64, f64),
@@ -30,12 +38,19 @@ pub struct Robot {
     pub joints: Vec<Joint>,
 }
 
+impl Default for Robot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Robot {
     pub fn new() -> Self {
         Robot { joints: Vec::new() }
     }
 
     // Agrega una articulacion que gira sobre `axis` con un offset.
+    // `origin` es local (normalmente (0, 0, 0)).
     pub fn add_revolute(
         &mut self,
         origin: (f64, f64, f64),
@@ -60,6 +75,7 @@ impl Robot {
     }
 
     // Agrega una articulacion que desliza sobre `axis` con un offset.
+    // `origin` es local (normalmente (0, 0, 0)).
     pub fn add_prismatic(
         &mut self,
         origin: (f64, f64, f64),
@@ -87,7 +103,12 @@ impl Robot {
         self.joints.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.joints.is_empty()
+    }
+
     // Motor local de una articulacion para el valor q.
+    // Primero se aplica el offset y luego el movimiento de la articulacion.
     pub fn joint_motor(&self, i: usize, q: f64) -> Motor {
         let j = &self.joints[i];
         let m = Metric::pga();
@@ -117,11 +138,13 @@ impl Robot {
 }
 
 // Brazo de 3 articulaciones revolutas: el mismo de los ejemplos.
+// Base que gira en Z, hombro y codo que giran en X, tramos de 1.
+// Cada eje pasa por su propia articulacion: origin = (0, 0, 0).
 pub fn demo_arm() -> Robot {
     let mut r = Robot::new();
     r.add_revolute((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (-3.14, 3.14));
-    r.add_revolute((0.0, 0.0, 1.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (-2.0, 2.0));
-    r.add_revolute((0.0, 0.0, 2.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (-2.0, 2.0));
+    r.add_revolute((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (-2.0, 2.0));
+    r.add_revolute((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (-2.0, 2.0));
     r
 }
 

@@ -5,6 +5,9 @@
 use crate::tool::{ArmFK, Tool};
 
 pub struct RobotArm {
+    // PENDIENTE: `fk` y `tool` todavia no se usan en `joints()`.
+    // El brazo de la celda es el brazo demo (3 tramos de 1).
+    // Mas adelante `joints()` debe usar el modelo `Robot` y `fk::forward`.
     pub fk: ArmFK,
     pub tool: Tool,
     pub q: [f64; 3],
@@ -13,7 +16,7 @@ pub struct RobotArm {
 
 impl RobotArm {
     // Puntos de las articulaciones del brazo en el mundo (4 puntos).
-       pub fn joints(&self) -> [(f64, f64, f64); 4] {
+    pub fn joints(&self) -> [(f64, f64, f64); 4] {
         use geoalg_core::algebra::metric::Metric;
         use geoalg_core::ops::sandwich::apply_point;
         use geoalg_core::types::line::Line;
@@ -23,6 +26,7 @@ impl RobotArm {
         use geoalg_core::types::translator::Translator;
 
         let m = Metric::pga();
+        // Ejes locales: pasan por la propia articulacion (origen).
         let az = Line::through_points(&Point::origin(), &Point::new(0.0, 0.0, 1.0));
         let ax = Line::through_points(&Point::origin(), &Point::new(1.0, 0.0, 0.0));
         let off = Motor::from_translator(&Translator::new(0.0, 0.0, 1.0)).inner();
@@ -39,7 +43,6 @@ impl RobotArm {
         }
         pts
     }
-    
 
     // Segmentos del brazo (3 eslabones) para comprobar choques.
     pub fn segments(&self) -> [((f64, f64, f64), (f64, f64, f64)); 3] {
@@ -48,11 +51,17 @@ impl RobotArm {
     }
 }
 
-// Distancia entre dos segmentos 3D (mas corta distancia entre las rectas).
+// Distancia mas corta entre dos segmentos 3D.
+//
+// Primero busca el par de puntos mas cercanos entre las rectas completas.
+// Si alguno cae fuera de su segmento, lo recorta al extremo y RECALCULA
+// el punto del otro segmento. Recortar los dos por separado da distancias
+// mas grandes que las reales, y eso hace que no se detecten choques.
 pub fn segment_distance(
     a0: (f64, f64, f64), a1: (f64, f64, f64),
     b0: (f64, f64, f64), b1: (f64, f64, f64),
 ) -> f64 {
+    const EPS: f64 = 1e-12;
     let u = (a1.0 - a0.0, a1.1 - a0.1, a1.2 - a0.2);
     let v = (b1.0 - b0.0, b1.1 - b0.1, b1.2 - b0.2);
     let w = (a0.0 - b0.0, a0.1 - b0.1, a0.2 - b0.2);
@@ -63,14 +72,33 @@ pub fn segment_distance(
     let c = dot(v, v);
     let d = dot(u, w);
     let e = dot(v, w);
-    let den = a * c - b * b;
 
-    let (s, t) = if den.abs() < 1e-12 {
+    let (s, t) = if a < EPS && c < EPS {
+        // Los dos segmentos son puntos.
+        (0.0, 0.0)
+    } else if a < EPS {
+        // El primer segmento es un punto.
         (0.0, (e / c).clamp(0.0, 1.0))
+    } else if c < EPS {
+        // El segundo segmento es un punto.
+        ((-d / a).clamp(0.0, 1.0), 0.0)
     } else {
-        let s = ((b * e - c * d) / den).clamp(0.0, 1.0);
-        let t = ((a * e - b * d) / den).clamp(0.0, 1.0);
-        (s, t)
+        let den = a * c - b * b;
+        // Si son paralelos, cualquier s sirve como punto de partida.
+        let s0 = if den > EPS {
+            ((b * e - c * d) / den).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        // Punto del segundo segmento mas cercano a s0.
+        let t0 = (b * s0 + e) / c;
+        if t0 < 0.0 {
+            ((-d / a).clamp(0.0, 1.0), 0.0)
+        } else if t0 > 1.0 {
+            (((b - d) / a).clamp(0.0, 1.0), 1.0)
+        } else {
+            (s0, t0)
+        }
     };
 
     let p = (a0.0 + s * u.0, a0.1 + s * u.1, a0.2 + s * u.2);
@@ -84,6 +112,12 @@ pub fn segment_distance(
 pub struct Cell {
     pub arms: Vec<RobotArm>,
     pub obstacles: Vec<((f64, f64, f64), (f64, f64, f64))>,
+}
+
+impl Default for Cell {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Cell {
@@ -145,6 +179,9 @@ impl Cell {
 mod tests {
     use super::*;
     use geoalg_calculus::differential::jacobian::arm_motor;
+    use std::f64::consts::FRAC_PI_2;
+
+    const EPS: f64 = 1e-9;
 
     fn arm_at(base: (f64, f64, f64), q: [f64; 3]) -> RobotArm {
         RobotArm {
@@ -155,6 +192,10 @@ mod tests {
         }
     }
 
+    fn cerca(a: (f64, f64, f64), b: (f64, f64, f64)) -> bool {
+        (a.0 - b.0).abs() < EPS && (a.1 - b.1).abs() < EPS && (a.2 - b.2).abs() < EPS
+    }
+
     #[test]
     fn distancia_segmentos_paralelos() {
         // Dos segmentos paralelos separados 2 unidades en Y.
@@ -162,7 +203,40 @@ mod tests {
             (0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
             (0.0, 2.0, 0.0), (1.0, 2.0, 0.0),
         );
-        assert!((d - 2.0).abs() < 1e-9, "esperaba 2.0, obtuve {d}");
+        assert!((d - 2.0).abs() < EPS, "esperaba 2.0, obtuve {d}");
+    }
+
+    #[test]
+    fn distancia_paralelos_desplazados() {
+        // Paralelos pero sin solaparse: lo mas cercano es de (1,0,0) a (5,1,0).
+        let d = segment_distance(
+            (0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+            (5.0, 1.0, 0.0), (6.0, 1.0, 0.0),
+        );
+        let esperado = 17.0_f64.sqrt();
+        assert!((d - esperado).abs() < EPS, "esperaba {esperado}, obtuve {d}");
+    }
+
+    #[test]
+    fn distancia_con_recorte() {
+        // El punto mas cercano de las rectas cae fuera de los segmentos.
+        // Recortar los dos por separado daba 1.0; lo correcto es 1/sqrt(5).
+        let d = segment_distance(
+            (0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+            (-1.0, 0.0, 0.0), (1.0, 0.0, 1.0),
+        );
+        let esperado = 1.0 / 5.0_f64.sqrt();
+        assert!((d - esperado).abs() < EPS, "esperaba {esperado}, obtuve {d}");
+    }
+
+    #[test]
+    fn distancia_de_punto_a_segmento() {
+        // El primer "segmento" es un punto.
+        let d = segment_distance(
+            (0.0, 0.0, 0.0), (0.0, 0.0, 0.0),
+            (1.0, -1.0, 0.0), (1.0, 1.0, 0.0),
+        );
+        assert!((d - 1.0).abs() < EPS, "esperaba 1.0, obtuve {d}");
     }
 
     #[test]
@@ -172,7 +246,18 @@ mod tests {
             (-1.0, 0.0, 0.0), (1.0, 0.0, 0.0),
             (0.0, -1.0, 0.0), (0.0, 1.0, 0.0),
         );
-        assert!(d < 1e-9, "esperaba 0, obtuve {d}");
+        assert!(d < EPS, "esperaba 0, obtuve {d}");
+    }
+
+    #[test]
+    fn articulaciones_del_brazo_exactas() {
+        // Hombro a 90 grados, base movida a (5,0,0).
+        let arm = arm_at((5.0, 0.0, 0.0), [0.0, FRAC_PI_2, 0.0]);
+        let j = arm.joints();
+        assert!(cerca(j[0], (5.0, 0.0, 0.0)), "base: {:?}", j[0]);
+        assert!(cerca(j[1], (5.0, 0.0, 1.0)), "hombro: {:?}", j[1]);
+        assert!(cerca(j[2], (5.0, -1.0, 1.0)), "codo: {:?}", j[2]);
+        assert!(cerca(j[3], (5.0, -2.0, 1.0)), "punta: {:?}", j[3]);
     }
 
     #[test]
