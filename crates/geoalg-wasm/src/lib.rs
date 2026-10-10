@@ -1,112 +1,266 @@
-﻿use wasm_bindgen::prelude::*;
+//! geoalg-wasm: puente entre geoalg y JavaScript.
+//!
+//! Este crate NO hace matematicas propias: solo traduce. Todo el calculo
+//! lo hacen geoalg-core (motores) y geoalg-robotics (FK e IK), que tienen
+//! sus propias pruebas. Si algo se arregla alla, aqui se arregla solo.
+//!
+//! Convencion: las rotaciones siguen la regla de la mano derecha, igual
+//! que three.js. Las matrices salen en orden de columnas (column-major),
+//! que es el que usa `THREE.Matrix4.fromArray`.
 
+use geoalg_core::{apply_point, Line, Motor, Point, Rotor, Translator};
+use geoalg_robotics::{forward, IKSolution, Robot};
+use wasm_bindgen::prelude::*;
+
+// ===================== Motor =====================
+
+/// Movimiento rigido (giro + traslacion), hecho con el Motor de geoalg-core.
 #[wasm_bindgen]
-#[derive(Clone, Debug)]
 pub struct WasmMotor {
-    data: [f64; 8],
+    inner: Motor,
+}
+
+// Aplica un motor a un punto y devuelve sus coordenadas.
+fn ap(m: &Motor, x: f64, y: f64, z: f64) -> [f64; 3] {
+    match apply_point(&m.inner(), &Point::new(x, y, z)).coords() {
+        Some((a, b, c)) => [a, b, c],
+        None => [f64::NAN, f64::NAN, f64::NAN],
+    }
 }
 
 #[wasm_bindgen]
 impl WasmMotor {
+    /// Motor identidad (no mueve nada).
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
-        Self { data: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }
+    pub fn new() -> WasmMotor {
+        WasmMotor { inner: Motor::identity() }
     }
 
-    pub fn from_translation(dx: f64, dy: f64, dz: f64) -> Self {
-        Self { data: [1.0, 0.0, 0.0, 0.0, dx / 2.0, dy / 2.0, dz / 2.0, 0.0] }
+    /// Traslacion pura.
+    #[wasm_bindgen(js_name = fromTranslation)]
+    pub fn from_translation(dx: f64, dy: f64, dz: f64) -> WasmMotor {
+        WasmMotor { inner: Motor::from_translator(&Translator::new(dx, dy, dz)) }
     }
 
-    pub fn from_rotation(ax: f64, ay: f64, az: f64, angle: f64) -> Self {
-        let half = angle / 2.0;
-        let s = half.sin();
-        let c = half.cos();
+    /// Giro de `angle` radianes alrededor del eje (ax, ay, az) que pasa por el origen.
+    #[wasm_bindgen(js_name = fromRotation)]
+    pub fn from_rotation(ax: f64, ay: f64, az: f64, angle: f64) -> WasmMotor {
         let len = (ax * ax + ay * ay + az * az).sqrt();
         if len < 1e-15 {
-            return Self::new();
+            return WasmMotor::new();
         }
-        Self {
-            data: [c, -s * ax / len, -s * ay / len, -s * az / len, 0.0, 0.0, 0.0, 0.0],
-        }
+        let axis = Line::through_points(&Point::origin(), &Point::new(ax / len, ay / len, az / len));
+        WasmMotor { inner: Motor::from_rotor(&Rotor::from_axis_angle(&axis, angle)) }
     }
 
-    pub fn compose(&self, other: &WasmMotor) -> WasmMotor {
-        let a = &self.data;
-        let b = &other.data;
-        let r = a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3];
-        let e1 = a[0] * b[1] + a[1] * b[0] - a[2] * b[3] + a[3] * b[2];
-        let e2 = a[0] * b[2] + a[1] * b[3] + a[2] * b[0] - a[3] * b[1];
-        let e3 = a[0] * b[3] - a[1] * b[2] + a[2] * b[1] + a[3] * b[0];
-        let t0 = a[4] + b[4];
-        let t1 = a[5] + b[5];
-        let t2 = a[6] + b[6];
-        let t3 = a[7] + b[7];
-        WasmMotor { data: [r, e1, e2, e3, t0, t1, t2, t3] }
+    /// Composicion: `a.andThen(b)` aplica primero `a` y luego `b`.
+    /// (No se llama `then` porque en JavaScript eso confunde a las Promesas.)
+    #[wasm_bindgen(js_name = andThen)]
+    pub fn and_then(&self, next: &WasmMotor) -> WasmMotor {
+        WasmMotor { inner: self.inner.then(&next.inner) }
     }
 
+    /// Movimiento inverso: deshace este motor.
+    pub fn inverse(&self) -> WasmMotor {
+        WasmMotor { inner: self.inner.inverse() }
+    }
+
+    /// Mueve un punto. Devuelve [x, y, z].
+    #[wasm_bindgen(js_name = applyPoint)]
     pub fn apply_point(&self, x: f64, y: f64, z: f64) -> Vec<f64> {
-        let m = &self.data;
-        let (w, qx, qy, qz) = (m[0], m[1], m[2], m[3]);
-        let px = x;
-        let py = y;
-        let pz = z;
-        let t0 = -qx * px - qy * py - qz * pz;
-        let t1 = w * px + qy * pz - qz * py;
-        let t2 = w * py - qx * pz + qz * px;
-        let t3 = w * pz + qx * py - qy * px;
-        let rx = t1 * w - t0 * qx + t2 * qz - t3 * qy;
-        let ry = t2 * w - t0 * qy + t3 * qx - t1 * qz;
-        let rz = t3 * w - t0 * qz + t1 * qy - t2 * qx;
-        vec![rx + 2.0 * m[4], ry + 2.0 * m[5], rz + 2.0 * m[6]]
+        ap(&self.inner, x, y, z).to_vec()
     }
 
+    /// A donde manda el origen: la parte de traslacion. Devuelve [x, y, z].
+    #[wasm_bindgen(js_name = toPosition)]
+    pub fn to_position(&self) -> Vec<f64> {
+        ap(&self.inner, 0.0, 0.0, 0.0).to_vec()
+    }
+
+    /// Matriz 4x4 en orden de columnas, lista para `THREE.Matrix4.fromArray`.
+    #[wasm_bindgen(js_name = toMat4)]
     pub fn to_mat4(&self) -> Vec<f64> {
-        let m = &self.data;
-        let (w, x, y, z) = (m[0], m[1], m[2], m[3]);
-        let n = (w * w + x * x + y * y + z * z).sqrt();
-        if n < 1e-15 {
-            return vec![
-                1.0, 0.0, 0.0, 0.0,
-                0.0, 1.0, 0.0, 0.0,
-                0.0, 0.0, 1.0, 0.0,
-                0.0, 0.0, 0.0, 1.0,
-            ];
-        }
-        let (w, x, y, z) = (w / n, x / n, y / n, z / n);
-        let m00 = 1.0 - 2.0 * (y * y + z * z);
-        let m01 = 2.0 * (x * y - w * z);
-        let m02 = 2.0 * (x * z + w * y);
-        let m10 = 2.0 * (x * y + w * z);
-        let m11 = 1.0 - 2.0 * (x * x + z * z);
-        let m12 = 2.0 * (y * z - w * x);
-        let m20 = 2.0 * (x * z - w * y);
-        let m21 = 2.0 * (y * z + w * x);
-        let m22 = 1.0 - 2.0 * (x * x + y * y);
+        let (o, ex, ey, ez) = self.frame();
         vec![
-            m00, m01, m02, 0.0,
-            m10, m11, m12, 0.0,
-            m20, m21, m22, 0.0,
-            2.0 * m[4], 2.0 * m[5], 2.0 * m[6], 1.0,
+            ex[0], ex[1], ex[2], 0.0,
+            ey[0], ey[1], ey[2], 0.0,
+            ez[0], ez[1], ez[2], 0.0,
+            o[0], o[1], o[2], 1.0,
         ]
     }
 
-    pub fn to_position(&self) -> Vec<f64> {
-        vec![2.0 * self.data[4], 2.0 * self.data[5], 2.0 * self.data[6]]
-    }
-
+    /// Cuaternion de la rotacion, en el orden de three.js: [x, y, z, w].
+    #[wasm_bindgen(js_name = toQuat)]
     pub fn to_quat(&self) -> Vec<f64> {
-        vec![self.data[0], self.data[1], self.data[2], self.data[3]]
-    }
-
-    pub fn from_pose(px: f64, py: f64, pz: f64, qw: f64, qx: f64, qy: f64, qz: f64) -> Self {
-        Self { data: [qw, qx, qy, qz, px / 2.0, py / 2.0, pz / 2.0, 0.0] }
-    }
-
-    pub fn get(&self, index: usize) -> f64 {
-        self.data[index.min(7)]
+        let (_, ex, ey, ez) = self.frame();
+        // Matriz de rotacion: columnas ex, ey, ez.
+        let (m00, m01, m02) = (ex[0], ey[0], ez[0]);
+        let (m10, m11, m12) = (ex[1], ey[1], ez[1]);
+        let (m20, m21, m22) = (ex[2], ey[2], ez[2]);
+        let tr = m00 + m11 + m22;
+        let (x, y, z, w) = if tr > 0.0 {
+            let s = (tr + 1.0).sqrt() * 2.0;
+            ((m21 - m12) / s, (m02 - m20) / s, (m10 - m01) / s, 0.25 * s)
+        } else if m00 > m11 && m00 > m22 {
+            let s = (1.0 + m00 - m11 - m22).sqrt() * 2.0;
+            (0.25 * s, (m01 + m10) / s, (m02 + m20) / s, (m21 - m12) / s)
+        } else if m11 > m22 {
+            let s = (1.0 + m11 - m00 - m22).sqrt() * 2.0;
+            ((m01 + m10) / s, 0.25 * s, (m12 + m21) / s, (m02 - m20) / s)
+        } else {
+            let s = (1.0 + m22 - m00 - m11).sqrt() * 2.0;
+            ((m02 + m20) / s, (m12 + m21) / s, 0.25 * s, (m10 - m01) / s)
+        };
+        vec![x, y, z, w]
     }
 }
 
+impl Default for WasmMotor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WasmMotor {
+    // Origen movido y los tres ejes girados (sin traslacion).
+    fn frame(&self) -> ([f64; 3], [f64; 3], [f64; 3], [f64; 3]) {
+        let o = ap(&self.inner, 0.0, 0.0, 0.0);
+        let sub = |p: [f64; 3]| [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
+        let ex = sub(ap(&self.inner, 1.0, 0.0, 0.0));
+        let ey = sub(ap(&self.inner, 0.0, 1.0, 0.0));
+        let ez = sub(ap(&self.inner, 0.0, 0.0, 1.0));
+        (o, ex, ey, ez)
+    }
+}
+
+// ===================== Robot =====================
+
+/// Un brazo robotico de geoalg-robotics: FK e IK.
+#[wasm_bindgen]
+pub struct WasmRobot {
+    inner: Robot,
+}
+
+/// Resultado de la IK, para JavaScript.
+#[wasm_bindgen]
+pub struct WasmIkResult {
+    angles: Vec<f64>,
+    error: f64,
+    converged: bool,
+    iterations: usize,
+}
+
+#[wasm_bindgen]
+impl WasmIkResult {
+    #[wasm_bindgen(getter)]
+    pub fn angles(&self) -> Vec<f64> {
+        self.angles.clone()
+    }
+    #[wasm_bindgen(getter)]
+    pub fn error(&self) -> f64 {
+        self.error
+    }
+    #[wasm_bindgen(getter)]
+    pub fn converged(&self) -> bool {
+        self.converged
+    }
+    #[wasm_bindgen(getter)]
+    pub fn iterations(&self) -> usize {
+        self.iterations
+    }
+}
+
+impl From<IKSolution> for WasmIkResult {
+    fn from(s: IKSolution) -> Self {
+        WasmIkResult { angles: s.angles, error: s.error, converged: s.converged, iterations: s.iterations }
+    }
+}
+
+#[wasm_bindgen]
+impl WasmRobot {
+    /// Robot vacio. Agrega articulaciones con addRevolute / addPrismatic.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> WasmRobot {
+        WasmRobot { inner: Robot::new() }
+    }
+
+    /// El brazo de ejemplo: base en Z y dos articulaciones en X, tramos de 1.
+    #[wasm_bindgen(js_name = demoArm)]
+    pub fn demo_arm() -> WasmRobot {
+        WasmRobot { inner: geoalg_robotics::demo_arm() }
+    }
+
+    /// Agrega una articulacion que gira sobre el eje (dx, dy, dz).
+    /// El eje pasa por la propia articulacion; (ox, oy, oz) es el tramo
+    /// hasta la siguiente. Limites en radianes.
+    #[wasm_bindgen(js_name = addRevolute)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_revolute(&mut self, dx: f64, dy: f64, dz: f64, ox: f64, oy: f64, oz: f64, lo: f64, hi: f64) {
+        self.inner.add_revolute((0.0, 0.0, 0.0), (dx, dy, dz), (ox, oy, oz), (lo, hi));
+    }
+
+    /// Agrega una articulacion que desliza sobre el eje (dx, dy, dz).
+    #[wasm_bindgen(js_name = addPrismatic)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_prismatic(&mut self, dx: f64, dy: f64, dz: f64, ox: f64, oy: f64, oz: f64, lo: f64, hi: f64) {
+        self.inner.add_prismatic((0.0, 0.0, 0.0), (dx, dy, dz), (ox, oy, oz), (lo, hi));
+    }
+
+    /// Numero de articulaciones.
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    #[wasm_bindgen(js_name = isEmpty)]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Posicion de la punta para los angulos dados. Devuelve [x, y, z].
+    /// Si faltan angulos, se toman como 0 (nunca truena).
+    #[wasm_bindgen(js_name = tipPosition)]
+    pub fn tip_position(&self, angles: &[f64]) -> Vec<f64> {
+        let q = self.padded(angles);
+        let p = *forward(&self.inner, &q).joints.last().unwrap();
+        vec![p.0, p.1, p.2]
+    }
+
+    /// Posicion de cada articulacion (base incluida), en una lista plana:
+    /// [x0, y0, z0, x1, y1, z1, ...].
+    #[wasm_bindgen(js_name = jointPositions)]
+    pub fn joint_positions(&self, angles: &[f64]) -> Vec<f64> {
+        let q = self.padded(angles);
+        forward(&self.inner, &q)
+            .joints
+            .iter()
+            .flat_map(|p| [p.0, p.1, p.2])
+            .collect()
+    }
+
+    /// IK gratis: angulos para llevar la punta a (x, y, z).
+    #[wasm_bindgen(js_name = ikXyz)]
+    pub fn ik_xyz(&self, x: f64, y: f64, z: f64, initial: &[f64], max_iter: usize, tol: f64) -> WasmIkResult {
+        let q0 = self.padded(initial);
+        self.inner.ik_xyz([x, y, z], &q0, max_iter, tol).into()
+    }
+}
+
+impl Default for WasmRobot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WasmRobot {
+    // Completa con ceros si JavaScript manda menos angulos de los necesarios.
+    fn padded(&self, angles: &[f64]) -> Vec<f64> {
+        let mut q = angles.to_vec();
+        q.resize(self.inner.len(), 0.0);
+        q
+    }
+}
+
+/// Version de geoalg-wasm.
 #[wasm_bindgen]
 pub fn version() -> String {
     format!("geoalg-wasm {}", env!("CARGO_PKG_VERSION"))
@@ -115,35 +269,102 @@ pub fn version() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f64::consts::{FRAC_PI_2, FRAC_1_SQRT_2};
 
-    #[test]
-    fn test_identity() {
-        let m = WasmMotor::new();
-        assert!((m.get(0) - 1.0).abs() < 1e-10);
+    const EPS: f64 = 1e-9;
+
+    fn cerca(a: &[f64], b: &[f64]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < EPS)
     }
 
     #[test]
-    fn test_pose_roundtrip() {
-        let m = WasmMotor::from_pose(1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0);
-        let pos = m.to_position();
-        assert!((pos[0] - 1.0).abs() < 1e-10);
+    fn girar_90_en_z() {
+        // Antes este caso devolvia (1,0,0): no giraba nada.
+        let m = WasmMotor::from_rotation(0.0, 0.0, 1.0, FRAC_PI_2);
+        let p = m.apply_point(1.0, 0.0, 0.0);
+        assert!(cerca(&p, &[0.0, 1.0, 0.0]), "obtuve {:?}", p);
     }
 
     #[test]
-    fn test_mat4() {
-        let m = WasmMotor::new();
-        let mat = m.to_mat4();
-        assert!((mat[0] - 1.0).abs() < 1e-10);
-        assert!((mat[15] - 1.0).abs() < 1e-10);
+    fn girar_y_luego_trasladar() {
+        // Antes la traslacion ignoraba el giro.
+        let rot = WasmMotor::from_rotation(0.0, 0.0, 1.0, FRAC_PI_2);
+        let tra = WasmMotor::from_translation(1.0, 0.0, 0.0);
+        let p = rot.and_then(&tra).apply_point(1.0, 0.0, 0.0);
+        assert!(cerca(&p, &[1.0, 1.0, 0.0]), "obtuve {:?}", p);
     }
 
     #[test]
-    fn test_compose() {
-        let a = WasmMotor::from_translation(1.0, 0.0, 0.0);
-        let b = WasmMotor::from_translation(0.0, 2.0, 0.0);
-        let c = a.compose(&b);
-        let pos = c.to_position();
-        assert!((pos[0] - 1.0).abs() < 1e-10);
-        assert!((pos[1] - 2.0).abs() < 1e-10);
+    fn dos_giros_seguidos() {
+        let r = WasmMotor::from_rotation(0.0, 0.0, 1.0, FRAC_PI_2);
+        let p = r.and_then(&r).apply_point(1.0, 0.0, 0.0);
+        assert!(cerca(&p, &[-1.0, 0.0, 0.0]), "obtuve {:?}", p);
+    }
+
+    #[test]
+    fn inverso_deshace() {
+        let m = WasmMotor::from_rotation(0.3, -0.5, 0.8, 1.1).and_then(&WasmMotor::from_translation(2.0, -1.0, 0.5));
+        let q = m.apply_point(1.0, 2.0, 3.0);
+        let back = m.inverse().apply_point(q[0], q[1], q[2]);
+        assert!(cerca(&back, &[1.0, 2.0, 3.0]), "obtuve {:?}", back);
+    }
+
+    #[test]
+    fn matriz_en_orden_de_columnas() {
+        // Giro 90 en Z y luego traslado (5,6,7).
+        let m = WasmMotor::from_rotation(0.0, 0.0, 1.0, FRAC_PI_2)
+            .and_then(&WasmMotor::from_translation(5.0, 6.0, 7.0));
+        let a = m.to_mat4();
+        assert!(cerca(&a[0..3], &[0.0, 1.0, 0.0]), "columna X: {:?}", &a[0..3]);
+        assert!(cerca(&a[4..7], &[-1.0, 0.0, 0.0]), "columna Y: {:?}", &a[4..7]);
+        assert!(cerca(&a[8..11], &[0.0, 0.0, 1.0]), "columna Z: {:?}", &a[8..11]);
+        assert!(cerca(&a[12..15], &[5.0, 6.0, 7.0]), "traslacion: {:?}", &a[12..15]);
+    }
+
+    #[test]
+    fn cuaternion_de_giro_en_z() {
+        let q = WasmMotor::from_rotation(0.0, 0.0, 1.0, FRAC_PI_2).to_quat();
+        assert!(cerca(&q, &[0.0, 0.0, FRAC_1_SQRT_2, FRAC_1_SQRT_2]), "obtuve {:?}", q);
+    }
+
+    #[test]
+    fn robot_demo_fk_exacta() {
+        let r = WasmRobot::demo_arm();
+        let p = r.tip_position(&[0.0, FRAC_PI_2, 0.0]);
+        assert!(cerca(&p, &[0.0, -2.0, 1.0]), "obtuve {:?}", p);
+    }
+
+    #[test]
+    fn faltan_angulos_no_truena() {
+        let r = WasmRobot::demo_arm();
+        let p = r.tip_position(&[]);
+        assert!(cerca(&p, &[0.0, 0.0, 3.0]), "obtuve {:?}", p);
+        assert_eq!(r.joint_positions(&[]).len(), 12);
+    }
+
+    #[test]
+    fn robot_ik_llega() {
+        let r = WasmRobot::demo_arm();
+        let t = r.tip_position(&[0.3, 0.4, -0.5]);
+        let s = r.ik_xyz(t[0], t[1], t[2], &[0.1, 0.1, 0.1], 200, 1e-6);
+        assert!(s.converged(), "error: {}", s.error());
+        let p = r.tip_position(&s.angles());
+        assert!(p.iter().zip(&t).all(|(a, b)| (a - b).abs() < 1e-6), "punta {:?}, objetivo {:?}", p, t);
+    }
+
+    #[test]
+    fn robot_armado_a_mano() {
+        // Brazo con eje Y hacia arriba, como en three.js:
+        // base gira en Y; hombro y codo giran en X; tramos hacia +Y.
+        let mut r = WasmRobot::new();
+        r.add_revolute(0.0, 1.0, 0.0, 0.0, 0.325, 0.0, -3.14, 3.14);
+        r.add_revolute(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, -2.6, 2.6);
+        r.add_revolute(1.0, 0.0, 0.0, 0.0, 0.8, 0.0, -2.8, 2.8);
+        assert_eq!(r.len(), 3);
+        let p = r.tip_position(&[0.0, 0.0, 0.0]);
+        assert!(cerca(&p, &[0.0, 2.125, 0.0]), "obtuve {:?}", p);
+        // Hombro a 90: los dos tramos (1.8) giran de +Y hacia +Z.
+        let p = r.tip_position(&[0.0, FRAC_PI_2, 0.0]);
+        assert!(cerca(&p, &[0.0, 0.325, 1.8]), "obtuve {:?}", p);
     }
 }

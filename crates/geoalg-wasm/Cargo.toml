@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "geoalg-wasm"
 version.workspace = true
 edition.workspace = true
@@ -9,5 +9,5 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 geoalg-core = { path = "../geoalg-core" }
-geoalg = { path = "../geoalg" }
+geoalg-robotics = { path = "../geoalg-robotics" }
 wasm-bindgen = "0.2"
