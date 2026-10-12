@@ -1,10 +1,12 @@
 [package]
 name = "geoalg-ffi"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 geoalg-core = { path = "../geoalg-core" }
+geoalg-robotics = { path = "../geoalg-robotics" }

@@ -47,6 +47,7 @@ name = "geoalg-ffi"
 version = "0.1.0"
 dependencies = [
  "geoalg-core",
+ "geoalg-robotics",
 ]
 
 [[package]]
@@ -68,8 +69,8 @@ dependencies = [
 name = "geoalg-wasm"
 version = "0.1.0"
 dependencies = [
- "geoalg",
  "geoalg-core",
+ "geoalg-robotics",
  "wasm-bindgen",
 ]
 
