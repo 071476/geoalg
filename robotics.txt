@@ -1,0 +1,872 @@
+﻿
+===== Cargo.toml =====
+[workspace]
+resolver = "2"
+members = [
+    "crates/geoalg-core",
+    "crates/geoalg",
+    "crates/geoalg-calculus",
+    "crates/geoalg-robotics",
+    "crates/geoalg-graphics",
+    "crates/geoalg-compat",
+    "crates/geoalg-ffi",
+    "crates/geoalg-wasm",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later OR LicenseRef-commercial"
+repository = "https://github.com/071476/geoalg"
+authors = ["071476 <ali-gafer@hotmail.com>"]
+
+===== .gitignore =====
+/target
+
+
+===== docs\roadmap.md =====
+# Roadmap de geoalg
+
+Camino ordenado: cada etapa es un "cliente exigente" que obliga a crecer a la biblioteca.
+
+## Estado actual
+- geoalg-core: algebra, multivector, types, ops (37 tests).
+- geoalg: prelude y algebras configuradas (39 tests).
+- examples: basic_motor, ray_plane_intersection, export_scene.
+- Puente Rust-Python funcionando (tools/plot_scene.py, visor 3D estatico).
+
+## Etapa 1 - Brazo robotico
+- 1A Brazo de 3 articulaciones animado (visor con cuadros).
+- 1B Interpolacion de poses: Motor::exp(), Motor::log(), Motor::between().
+- Extras: cinematica directa, deteccion de choque con el suelo.
+
+## Etapa 2 - Personaje animado
+- Jerarquias de motores (esqueleto).
+- Mezcla de movimientos (blending).
+- Rendimiento (sparse, SIMD).
+
+## Etapa 3 - Juego 3D (trazado de rayos)
+- Intersecciones: rayo-esfera, rayo-triangulo, rayo-plano.
+- Reflexiones y sombras.
+- Distancias entre geometrias.
+
+## Etapa 4 - Camara de cine
+- Trayectorias suaves: splines sobre motores.
+- Encuadre y profundidad de campo.
+
+===== crates\geoalg-robotics\Cargo.toml =====
+[package]
+name = "geoalg-robotics"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+geoalg-core = { path = "../geoalg-core" }
+geoalg-calculus = { path = "../geoalg-calculus" }
+
+===== crates\geoalg-robotics\src\lib.rs =====
+pub mod cell;
+pub mod fk;
+pub mod ik;
+pub mod limits;
+pub mod model;
+pub mod tool;
+pub mod trajectory;
+
+// "Menu" de la libreria: lo esencial a mano.
+// Asi el usuario puede escribir `use geoalg_robotics::{Robot, IKSolution};`
+pub use fk::{forward, forward_with_tool, tip_position, FKResult};
+pub use ik::IKSolution;
+pub use model::{demo_arm, Joint, JointKind, Robot};
+pub use tool::Tool;
+
+
+===== crates\geoalg-robotics\src\model.rs =====
+// Model: describe un robot con sus articulaciones y eslabones.
+// En vez de matrices DH, cada articulacion es un motor: el eje donde
+// gira (o desliza) y el desplazamiento hasta la siguiente articulacion.
+//
+// IMPORTANTE: todo se mide en el sistema LOCAL de cada articulacion.
+// - `origin` es un punto del eje, medido desde la propia articulacion.
+//   En casi todos los brazos es (0, 0, 0): el eje pasa por la articulacion.
+// - `offset` es el tramo (eslabon) desde esta articulacion hasta la siguiente.
+// No uses posiciones absolutas en `origin`: la posicion de cada articulacion
+// ya la dan los `offset` de las anteriores. Si pones las dos, se cuenta doble.
+
+use geoalg_core::algebra::metric::Metric;
+use geoalg_core::types::line::Line;
+use geoalg_core::types::motor::Motor;
+use geoalg_core::types::point::Point;
+use geoalg_core::types::rotor::Rotor;
+use geoalg_core::types::translator::Translator;
+
+pub enum JointKind {
+    // Articulacion que gira alrededor de su eje.
+    Revolute,
+    // Articulacion que se desliza a lo largo de su eje.
+    Prismatic,
+}
+
+pub struct Joint {
+    pub kind: JointKind,
+    // Eje de rotacion (Revolute) o de desplazamiento (Prismatic),
+    // en el sistema local de la articulacion.
+    pub axis: Line,
+    // Offset fijo desde esta articulacion hasta la siguiente.
+    pub offset: (f64, f64, f64),
+    // Limites del movimiento (min, max) en radianes o unidades.
+    pub limits: (f64, f64),
+}
+
+pub struct Robot {
+    pub joints: Vec<Joint>,
+}
+
+impl Default for Robot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Robot {
+    pub fn new() -> Self {
+        Robot { joints: Vec::new() }
+    }
+
+    // Agrega una articulacion que gira sobre `axis` con un offset.
+    // `origin` es local (normalmente (0, 0, 0)).
+    pub fn add_revolute(
+        &mut self,
+        origin: (f64, f64, f64),
+        direction: (f64, f64, f64),
+        offset: (f64, f64, f64),
+        limits: (f64, f64),
+    ) {
+        let axis = Line::through_points(
+            &Point::new(origin.0, origin.1, origin.2),
+            &Point::new(
+                origin.0 + direction.0,
+                origin.1 + direction.1,
+                origin.2 + direction.2,
+            ),
+        );
+        self.joints.push(Joint {
+            kind: JointKind::Revolute,
+            axis,
+            offset,
+            limits,
+        });
+    }
+
+    // Agrega una articulacion que desliza sobre `axis` con un offset.
+    // `origin` es local (normalmente (0, 0, 0)).
+    pub fn add_prismatic(
+        &mut self,
+        origin: (f64, f64, f64),
+        direction: (f64, f64, f64),
+        offset: (f64, f64, f64),
+        limits: (f64, f64),
+    ) {
+        let axis = Line::through_points(
+            &Point::new(origin.0, origin.1, origin.2),
+            &Point::new(
+                origin.0 + direction.0,
+                origin.1 + direction.1,
+                origin.2 + direction.2,
+            ),
+        );
+        self.joints.push(Joint {
+            kind: JointKind::Prismatic,
+            axis,
+            offset,
+            limits,
+        });
+    }
+
+    pub fn len(&self) -> usize {
+        self.joints.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.joints.is_empty()
+    }
+
+    // Motor local de una articulacion para el valor q.
+    // Primero se aplica el offset y luego el movimiento de la articulacion.
+    pub fn joint_motor(&self, i: usize, q: f64) -> Motor {
+        let j = &self.joints[i];
+        let m = Metric::pga();
+        let motion = match j.kind {
+            JointKind::Revolute => {
+                Motor::from_rotor(&Rotor::from_axis_angle(&j.axis, q)).inner()
+            }
+            JointKind::Prismatic => {
+                let d = j.axis.direction();
+                let n = (d.0 * d.0 + d.1 * d.1 + d.2 * d.2).sqrt();
+                Motor::from_translator(&Translator::new(
+                    d.0 / n * q,
+                    d.1 / n * q,
+                    d.2 / n * q,
+                ))
+                .inner()
+            }
+        };
+        let off = Motor::from_translator(&Translator::new(
+            j.offset.0,
+            j.offset.1,
+            j.offset.2,
+        ))
+        .inner();
+        Motor::from_dense(motion.geo(&off, &m))
+    }
+}
+
+// Brazo de 3 articulaciones revolutas: el mismo de los ejemplos.
+// Base que gira en Z, hombro y codo que giran en X, tramos de 1.
+// Cada eje pasa por su propia articulacion: origin = (0, 0, 0).
+pub fn demo_arm() -> Robot {
+    let mut r = Robot::new();
+    r.add_revolute((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (-3.14, 3.14));
+    r.add_revolute((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (-2.0, 2.0));
+    r.add_revolute((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (-2.0, 2.0));
+    r
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn brazo_demo_tiene_tres_articulaciones() {
+        let r = demo_arm();
+        assert_eq!(r.len(), 3);
+    }
+
+    #[test]
+    fn articulacion_gira() {
+        let r = demo_arm();
+        let m = r.joint_motor(0, 0.0);
+        let off = Motor::from_translator(&Translator::new(0.0, 0.0, 1.0));
+        assert!(m.inner().approx_eq(&off.inner(), 1e-9));
+    }
+
+    #[test]
+    fn articulacion_desliza() {
+        let mut r = Robot::new();
+        r.add_prismatic((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, 0.0, 0.0), (0.0, 5.0));
+        let m = r.joint_motor(0, 2.0);
+        let expect = Motor::from_translator(&Translator::new(0.0, 0.0, 2.0));
+        assert!(m.inner().approx_eq(&expect.inner(), 1e-9));
+    }
+}
+
+
+===== crates\geoalg-robotics\src\limits.rs =====
+// Limits: limites articulares de un robot.
+// Un robot real no puede girar indefinidamente: cada articulacion tiene
+// un rango minimo y maximo. Estas funciones verifican y recortan.
+
+use crate::model::Robot;
+
+// Comprueba si una configuracion q esta dentro de los limites del robot.
+pub fn within_limits(robot: &Robot, q: &[f64]) -> bool {
+    for (i, &qi) in q.iter().enumerate() {
+        if i >= robot.len() {
+            break;
+        }
+        let (min, max) = robot.joints[i].limits;
+        if qi < min || qi > max {
+            return false;
+        }
+    }
+    true
+}
+
+// Recorta una configuracion a los limites del robot.
+pub fn clamp(robot: &Robot, q: &[f64]) -> Vec<f64> {
+    q.iter()
+        .enumerate()
+        .map(|(i, &qi)| {
+            if i >= robot.len() {
+                return qi;
+            }
+            let (min, max) = robot.joints[i].limits;
+            qi.max(min).min(max)
+        })
+        .collect()
+}
+
+// Distancia al limite mas cercano: cuanto falta para llegar al borde.
+// Sirve para planificar trayectorias que no se acerquen al limite.
+pub fn limit_distance(robot: &Robot, q: &[f64]) -> f64 {
+    let mut min_dist = f64::INFINITY;
+    for (i, &qi) in q.iter().enumerate() {
+        if i >= robot.len() {
+            break;
+        }
+        let (min, max) = robot.joints[i].limits;
+        let d = (qi - min).min(max - qi);
+        if d < min_dist {
+            min_dist = d;
+        }
+    }
+    min_dist
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::demo_arm;
+
+    #[test]
+    fn dentro_de_limites() {
+        let r = demo_arm();
+        assert!(within_limits(&r, &[0.0, 0.5, -0.5]));
+    }
+
+    #[test]
+    fn fuera_de_limites() {
+        let r = demo_arm();
+        // El hombro (indice 1) tiene limites (-2, 2).
+        assert!(!within_limits(&r, &[0.0, 3.0, 0.0]));
+    }
+
+    #[test]
+    fn clamp_recorta() {
+        let r = demo_arm();
+        let q = clamp(&r, &[0.0, 5.0, -5.0]);
+        assert!((q[1] - 2.0).abs() < 1e-9);
+        assert!((q[2] + 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn distancia_al_limite() {
+        let r = demo_arm();
+        // Articulacion 1 con limites (-2, 2): q=1.5 => distancia = 0.5.
+        let d = limit_distance(&r, &[0.0, 1.5, 0.0]);
+        assert!((d - 0.5).abs() < 1e-9, "esperaba 0.5, obtuve {d}");
+    }
+}
+
+===== crates\geoalg-robotics\src\ik.rs =====
+//! IK gratis: cinematica inversa por minimos cuadrados amortiguados (DLS).
+//!
+//! Dado un punto objetivo, busca los angulos para que la punta del brazo
+//! (o de la herramienta) llegue ahi. Funciona con cualquier `Robot`,
+//! con cualquier numero de articulaciones, y respeta sus limites.
+//!
+//! Version gratis: amortiguamiento simple + reintentos desde varios puntos.
+//! La version Pro (geoalg-premium) agrega Levenberg-Marquardt adaptativo
+//! y diagnosticos que explican por que no se llego al objetivo.
+
+use crate::fk::{forward, forward_with_tool};
+use crate::model::Robot;
+use crate::tool::Tool;
+
+/// Resultado de la IK. Misma forma que en geoalg-premium, para que el
+/// usuario pueda pasar de gratis a Pro sin cambiar su codigo.
+#[derive(Clone, Debug)]
+pub struct IKSolution {
+    /// Angulo (o desplazamiento) de cada articulacion.
+    pub angles: Vec<f64>,
+    /// Distancia final entre la punta y el objetivo.
+    pub error: f64,
+    /// true si el error quedo por debajo de la tolerancia.
+    pub converged: bool,
+    /// Vueltas usadas en total (sumando los reintentos).
+    pub iterations: usize,
+}
+
+/// Paso maximo por vuelta (radianes o unidades). Evita saltos bruscos.
+const MAX_STEP: f64 = 0.5;
+/// Amortiguamiento: alto lejos del objetivo (estable), bajo cerca (preciso).
+const DAMPING_MAX: f64 = 0.05;
+const DAMPING_MIN: f64 = 1e-3;
+
+impl Robot {
+    /// IK de posicion: lleva la punta del brazo al punto `target`.
+    pub fn ik_xyz(&self, target: [f64; 3], initial: &[f64], max_iter: usize, tol: f64) -> IKSolution {
+        solve(self, None, target, initial, max_iter, tol)
+    }
+
+    /// IK de posicion con herramienta: lleva la punta de la HERRAMIENTA
+    /// (el TCP: punta del soldador, de la pinza...) al punto `target`.
+    pub fn ik_xyz_with_tool(
+        &self,
+        tool: &Tool,
+        target: [f64; 3],
+        initial: &[f64],
+        max_iter: usize,
+        tol: f64,
+    ) -> IKSolution {
+        solve(self, Some(tool), target, initial, max_iter, tol)
+    }
+}
+
+// Posicion de la punta (con o sin herramienta).
+fn tip(robot: &Robot, tool: Option<&Tool>, q: &[f64]) -> [f64; 3] {
+    let p = match tool {
+        Some(t) => *forward_with_tool(robot, q, t).joints.last().unwrap(),
+        None => *forward(robot, q).joints.last().unwrap(),
+    };
+    [p.0, p.1, p.2]
+}
+
+fn dist(a: &[f64; 3], b: &[f64; 3]) -> f64 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
+// Recorta cada articulacion a sus limites.
+fn clamp_to_limits(robot: &Robot, q: &mut [f64]) {
+    for (i, j) in robot.joints.iter().enumerate() {
+        let (lo, hi) = j.limits;
+        if lo <= hi && q[i].is_finite() {
+            q[i] = q[i].clamp(lo, hi);
+        }
+    }
+}
+
+// Puntos de partida: el que dio el usuario y cuatro mas repartidos
+// dentro de los limites. Si uno se atora, se prueba el siguiente.
+fn seeds(robot: &Robot, initial: &[f64]) -> Vec<Vec<f64>> {
+    let n = robot.len();
+    let mut first = initial.to_vec();
+    first.resize(n, 0.0);
+    let mut out = vec![first];
+    for f in [0.25, -0.25, 0.4, -0.4] {
+        let s: Vec<f64> = robot
+            .joints
+            .iter()
+            .map(|j| {
+                let (lo, hi) = j.limits;
+                (lo + hi) / 2.0 + (hi - lo) * f
+            })
+            .collect();
+        out.push(s);
+    }
+    for s in out.iter_mut() {
+        clamp_to_limits(robot, s);
+    }
+    out
+}
+
+// Un intento de IK desde un punto de partida.
+fn attempt(
+    robot: &Robot,
+    tool: Option<&Tool>,
+    target: &[f64; 3],
+    start: Vec<f64>,
+    max_iter: usize,
+    tol: f64,
+) -> IKSolution {
+    let n = robot.len();
+    let mut q = start;
+    let mut iters = 0;
+
+    while iters < max_iter {
+        let p = tip(robot, tool, &q);
+        let e = [target[0] - p[0], target[1] - p[1], target[2] - p[2]];
+        let en = (e[0] * e[0] + e[1] * e[1] + e[2] * e[2]).sqrt();
+        if en < tol {
+            return IKSolution { angles: q, error: en, converged: true, iterations: iters };
+        }
+
+        // Jacobiano numerico (3 x n): como cambia la punta al mover cada articulacion.
+        let h = 1e-6;
+        let mut jac = vec![[0.0_f64; 3]; n];
+        for k in 0..n {
+            let mut qp = q.clone();
+            let mut qm = q.clone();
+            qp[k] += h;
+            qm[k] -= h;
+            let a = tip(robot, tool, &qp);
+            let b = tip(robot, tool, &qm);
+            for i in 0..3 {
+                jac[k][i] = (a[i] - b[i]) / (2.0 * h);
+            }
+        }
+
+        // dq = Jt * (J*Jt + lambda^2 * I)^-1 * e
+        let lam = en.clamp(DAMPING_MIN, DAMPING_MAX);
+        let mut a = [[0.0_f64; 3]; 3];
+        for i in 0..3 {
+            for j in 0..3 {
+                let mut s = 0.0;
+                for col in jac.iter() {
+                    s += col[i] * col[j];
+                }
+                if i == j {
+                    s += lam * lam;
+                }
+                a[i][j] = s;
+            }
+        }
+        let y = solve3(a, e);
+        let mut dq: Vec<f64> = jac
+            .iter()
+            .map(|col| col[0] * y[0] + col[1] * y[1] + col[2] * y[2])
+            .collect();
+
+        // Nunca dar un paso demasiado grande.
+        let biggest = dq.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        if !biggest.is_finite() {
+            break;
+        }
+        if biggest > MAX_STEP {
+            for v in dq.iter_mut() {
+                *v *= MAX_STEP / biggest;
+            }
+        }
+        for k in 0..n {
+            q[k] += dq[k];
+        }
+        clamp_to_limits(robot, &mut q);
+        iters += 1;
+    }
+
+    let p = tip(robot, tool, &q);
+    let en = dist(target, &p);
+    IKSolution { angles: q, error: en, converged: en < tol, iterations: iters }
+}
+
+fn solve(
+    robot: &Robot,
+    tool: Option<&Tool>,
+    target: [f64; 3],
+    initial: &[f64],
+    max_iter: usize,
+    tol: f64,
+) -> IKSolution {
+    // Robot sin articulaciones: no hay nada que mover.
+    if robot.is_empty() {
+        let p = tip(robot, tool, &[]);
+        let en = dist(&target, &p);
+        return IKSolution { angles: Vec::new(), error: en, converged: en < tol, iterations: 0 };
+    }
+
+    let mut best: Option<IKSolution> = None;
+    let mut total = 0;
+    for s in seeds(robot, initial) {
+        let r = attempt(robot, tool, &target, s, max_iter, tol);
+        total += r.iterations;
+        let done = r.converged;
+        let better = match &best {
+            None => true,
+            Some(b) => r.error < b.error,
+        };
+        if better {
+            best = Some(r);
+        }
+        if done {
+            break;
+        }
+    }
+    // `seeds` siempre devuelve al menos un punto de partida.
+    let mut best = best.unwrap();
+    best.iterations = total;
+    best
+}
+
+// Evita dividir entre cero SIN perder el signo del pivote.
+fn safe_pivot(p: f64) -> f64 {
+    if p.abs() < 1e-12 {
+        if p < 0.0 { -1e-12 } else { 1e-12 }
+    } else {
+        p
+    }
+}
+
+// Resuelve un sistema 3x3 con eliminacion gaussiana y pivoteo.
+fn solve3(mut m: [[f64; 3]; 3], mut r: [f64; 3]) -> [f64; 3] {
+    for c in 0..3 {
+        let mut mx = c;
+        for k in c + 1..3 {
+            if m[k][c].abs() > m[mx][c].abs() {
+                mx = k;
+            }
+        }
+        m.swap(c, mx);
+        r.swap(c, mx);
+        let pv = safe_pivot(m[c][c]);
+        for k in c + 1..3 {
+            let f = m[k][c] / pv;
+            for j in c..3 {
+                m[k][j] -= f * m[c][j];
+            }
+            r[k] -= f * r[c];
+        }
+    }
+    let mut x = [0.0_f64; 3];
+    for i in (0..3).rev() {
+        let mut s = r[i];
+        for j in i + 1..3 {
+            s -= m[i][j] * x[j];
+        }
+        x[i] = s / safe_pivot(m[i][i]);
+    }
+    x
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fk::tip_position;
+    use crate::model::demo_arm;
+
+    fn tip3(r: &Robot, q: &[f64]) -> [f64; 3] {
+        let p = tip_position(r, q);
+        [p.0, p.1, p.2]
+    }
+
+    #[test]
+    fn llega_a_objetivo_alcanzable() {
+        let r = demo_arm();
+        let t = tip3(&r, &[0.3, 0.4, -0.5]);
+        let s = r.ik_xyz(t, &[0.1, 0.1, 0.1], 200, 1e-6);
+        assert!(s.converged, "no convergio: error={}, iters={}", s.error, s.iterations);
+        // Comprobacion independiente: la FK de la respuesta llega al objetivo.
+        let p = tip3(&r, &s.angles);
+        assert!(dist(&p, &t) < 1e-6, "la punta quedo en {:?}, objetivo {:?}", p, t);
+    }
+
+    #[test]
+    fn arranca_con_el_brazo_estirado() {
+        // Brazo totalmente recto: el caso mas dificil para el Jacobiano.
+        let r = demo_arm();
+        let t = tip3(&r, &[0.2, 0.7, 0.6]);
+        let s = r.ik_xyz(t, &[0.0, 0.0, 0.0], 200, 1e-6);
+        assert!(s.converged, "no convergio: error={}", s.error);
+    }
+
+    #[test]
+    fn con_herramienta() {
+        let r = demo_arm();
+        let tool = Tool::from_offset(0.0, 0.0, 0.5);
+        let p = *forward_with_tool(&r, &[0.5, -0.3, 0.8], &tool).joints.last().unwrap();
+        let t = [p.0, p.1, p.2];
+        let s = r.ik_xyz_with_tool(&tool, t, &[0.1, 0.1, 0.1], 200, 1e-6);
+        assert!(s.converged, "no convergio con herramienta: error={}", s.error);
+    }
+
+    #[test]
+    fn fuera_de_alcance_no_converge() {
+        // El hombro esta en (0,0,1) y alcanza 2: el punto (5,0,0) queda lejos.
+        let r = demo_arm();
+        let s = r.ik_xyz([5.0, 0.0, 0.0], &[0.1, 0.1, 0.1], 200, 1e-6);
+        assert!(!s.converged, "no deberia decir que llego");
+        assert!(s.error.is_finite() && s.error >= 3.0, "error: {}", s.error);
+        assert!(s.angles.iter().all(|a| a.is_finite()), "angulos: {:?}", s.angles);
+    }
+
+    #[test]
+    fn muchos_objetivos_y_respeta_limites() {
+        // 216 objetivos repartidos por todo el espacio de trabajo.
+        let r = demo_arm();
+        let mut ok = 0;
+        let mut total = 0;
+        for a in 0..6 {
+            for b in 0..6 {
+                for c in 0..6 {
+                    let q = [-3.0 + a as f64 * 1.2, -1.8 + b as f64 * 0.7, -1.8 + c as f64 * 0.7];
+                    let t = tip3(&r, &q);
+                    let s = r.ik_xyz(t, &[0.1, 0.1, 0.1], 200, 1e-6);
+                    total += 1;
+                    if s.converged {
+                        ok += 1;
+                    }
+                    for (v, j) in s.angles.iter().zip(r.joints.iter()) {
+                        let (lo, hi) = j.limits;
+                        assert!(*v >= lo - 1e-12 && *v <= hi + 1e-12, "angulo {v} fuera de ({lo}, {hi})");
+                    }
+                }
+            }
+        }
+        assert!(ok >= 212, "solo convergieron {ok} de {total}");
+    }
+
+    #[test]
+    fn robot_vacio() {
+        let r = Robot::new();
+        assert!(r.ik_xyz([0.0, 0.0, 0.0], &[], 10, 1e-6).converged);
+        assert!(!r.ik_xyz([1.0, 0.0, 0.0], &[], 10, 1e-6).converged);
+    }
+}
+
+
+===== crates\geoalg-robotics\src\fk.rs =====
+// FK: Forward Kinematics â€” dado el modelo del robot y los angulos de las
+// articulaciones, calcula la posicion de cada eslabon y del extremo.
+
+use crate::model::Robot;
+use crate::tool::Tool;
+use geoalg_core::algebra::metric::Metric;
+use geoalg_core::ops::sandwich::apply_point;
+use geoalg_core::types::motor::Motor;
+use geoalg_core::types::point::Point;
+
+// Resultado de la cinematica directa.
+pub struct FKResult {
+    // Motor de cada eslabon (desde la base hasta el extremo).
+    pub links: Vec<Motor>,
+    // Posicion de cada articulacion (incluida la base).
+    pub joints: Vec<(f64, f64, f64)>,
+    // Motor del extremo (end effector).
+    pub tip: Motor,
+}
+
+// Calcula la cinematica directa para los angulos dados.
+// Los angulos q[i] corresponden a la articulacion i.
+// Funciona para cualquier numero de articulaciones N.
+pub fn forward(robot: &Robot, q: &[f64]) -> FKResult {
+    let m = Metric::pga();
+    let mut links = Vec::with_capacity(robot.len());
+    let mut joints = Vec::with_capacity(robot.len() + 1);
+    let mut pose = Motor::identity().inner();
+
+    joints.push((0.0, 0.0, 0.0));
+
+    for i in 0..robot.len() {
+        let local = robot.joint_motor(i, q[i]);
+        // Transformacion de paso: pose acumulada * motor local.
+        pose = pose.geo(&local.inner(), &m);
+        let link = Motor::from_dense(pose);
+        let p = apply_point(&link.inner(), &Point::origin()).coords().unwrap();
+        joints.push(p);
+        links.push(link);
+    }
+
+    let tip = Motor::from_dense(pose);
+    FKResult { links, joints, tip }
+}
+
+// FK con herramienta: calcula la cadena completa incluyendo el TCP.
+pub fn forward_with_tool(robot: &Robot, q: &[f64], tool: &Tool) -> FKResult {
+    let m = Metric::pga();
+    let base = forward(robot, q);
+    let tcp = Motor::from_dense(base.tip.inner().geo(&tool.offset().inner(), &m));
+    let tip_pos = apply_point(&tcp.inner(), &Point::origin()).coords().unwrap();
+
+    let mut links = base.links;
+    links.push(tcp);
+    let mut joints = base.joints;
+    joints.push(tip_pos);
+
+    FKResult { links, joints, tip: tcp }
+}
+
+// Solo la posicion del extremo (mas rapido si no necesitas los eslabones).
+pub fn tip_position(robot: &Robot, q: &[f64]) -> (f64, f64, f64) {
+    let r = forward(robot, q);
+    *r.joints.last().unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::demo_arm;
+    use std::f64::consts::FRAC_PI_2;
+
+    const EPS: f64 = 1e-9;
+
+    // Compara dos posiciones con tolerancia.
+    fn cerca(a: (f64, f64, f64), b: (f64, f64, f64)) -> bool {
+        (a.0 - b.0).abs() < EPS && (a.1 - b.1).abs() < EPS && (a.2 - b.2).abs() < EPS
+    }
+
+    #[test]
+    fn brazo_recto_llega_a_3() {
+        let r = demo_arm();
+        let pos = tip_position(&r, &[0.0, 0.0, 0.0]);
+        assert!(cerca(pos, (0.0, 0.0, 3.0)), "esperaba (0,0,3), obtuve {:?}", pos);
+    }
+
+    #[test]
+    fn cuatro_puntos_en_la_cadena() {
+        let r = demo_arm();
+        let fk = forward(&r, &[0.5, 0.3, -0.2]);
+        assert_eq!(fk.joints.len(), 4);
+        assert_eq!(fk.links.len(), 3);
+    }
+
+    // Prueba EXACTA: hombro a 90 grados.
+    // Hombro en z=1, quedan 2 de brazo por encima, giran hacia -Y.
+    #[test]
+    fn hombro_90_exacto() {
+        let r = demo_arm();
+        let pos = tip_position(&r, &[0.0, FRAC_PI_2, 0.0]);
+        assert!(cerca(pos, (0.0, -2.0, 1.0)), "esperaba (0,-2,1), obtuve {:?}", pos);
+    }
+
+    // Prueba EXACTA: donde queda cada articulacion con el hombro a 90.
+    #[test]
+    fn articulaciones_en_su_lugar() {
+        let r = demo_arm();
+        let fk = forward(&r, &[0.0, FRAC_PI_2, 0.0]);
+        assert!(cerca(fk.joints[0], (0.0, 0.0, 0.0)), "base: {:?}", fk.joints[0]);
+        assert!(cerca(fk.joints[1], (0.0, 0.0, 1.0)), "hombro: {:?}", fk.joints[1]);
+        assert!(cerca(fk.joints[2], (0.0, -1.0, 1.0)), "codo: {:?}", fk.joints[2]);
+        assert!(cerca(fk.joints[3], (0.0, -2.0, 1.0)), "punta: {:?}", fk.joints[3]);
+    }
+
+    // Prueba EXACTA: solo el codo a 90 grados.
+    // Codo en z=2, el ultimo tramo de 1 gira hacia -Y.
+    #[test]
+    fn codo_90_exacto() {
+        let r = demo_arm();
+        let pos = tip_position(&r, &[0.0, 0.0, FRAC_PI_2]);
+        assert!(cerca(pos, (0.0, -1.0, 2.0)), "esperaba (0,-1,2), obtuve {:?}", pos);
+    }
+
+    // Prueba EXACTA: base y hombro a 90 grados.
+    #[test]
+    fn base_y_hombro_exacto() {
+        let r = demo_arm();
+        let pos = tip_position(&r, &[FRAC_PI_2, FRAC_PI_2, 0.0]);
+        assert!(cerca(pos, (2.0, 0.0, 1.0)), "esperaba (2,0,1), obtuve {:?}", pos);
+    }
+
+    // La punta nunca puede quedar mas lejos que el largo total del brazo.
+    #[test]
+    fn nunca_mas_lejos_que_su_largo() {
+        let r = demo_arm();
+        let mut q = [0.0; 3];
+        for a in 0..8 {
+            for b in 0..8 {
+                for c in 0..8 {
+                    q[0] = a as f64 * 0.7 - 2.5;
+                    q[1] = b as f64 * 0.5 - 2.0;
+                    q[2] = c as f64 * 0.5 - 2.0;
+                    let p = tip_position(&r, &q);
+                    let d = (p.0 * p.0 + p.1 * p.1 + p.2 * p.2).sqrt();
+                    assert!(d <= 3.0 + EPS, "q={:?} punta a {} (largo total 3)", q, d);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn forward_con_tool() {
+        let r = demo_arm();
+        let tool = Tool::from_offset(0.0, 0.0, 0.5);
+        let fk = forward_with_tool(&r, &[0.0, 0.0, 0.0], &tool);
+        // Brazo recto de 3 + tool de 0.5 = extremo en z = 3.5.
+        assert_eq!(fk.joints.len(), 5);
+        assert_eq!(fk.links.len(), 4);
+        let (_, _, z) = *fk.joints.last().unwrap();
+        assert!((z - 3.5).abs() < EPS, "esperaba z=3.5, obtuve z={z}");
+    }
+
+    #[test]
+    fn cadena_de_cinco_articulaciones() {
+        use crate::model::Robot;
+        let mut r = Robot::new();
+        for _ in 0..5 {
+            r.add_revolute((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, 0.0, 1.0), (-3.14, 3.14));
+        }
+        let fk = forward(&r, &[0.0; 5]);
+        assert_eq!(fk.joints.len(), 6);
+        let (_, _, z) = *fk.joints.last().unwrap();
+        assert!((z - 5.0).abs() < EPS, "esperaba z=5, obtuve z={z}");
+    }
+}
+
