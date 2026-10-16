@@ -12,6 +12,23 @@ Runs in Rust, in the browser (WebAssembly), from C, and in Unity.
 > README works today from this repository. If something is not listed under
 > [What you can use today](#what-you-can-use-today), it is not shipped yet.
 
+## Our promise
+
+> Every time geoalg can't do something, it should answer with three things:
+> **what happened, why, and what you can do.**
+
+Where this works today:
+
+| Situation | What happened | Why | What you can do |
+|---|---|---|---|
+| Target out of reach (`ik_xyz_explained`) | The tip did not reach the target | The target is X away from the last fixed point; the robot reaches at most Y | Move the target at least X - Y closer, or use longer links |
+| Invalid target (NaN or infinity) | Nothing was computed | The target has invalid values | Check where the point comes from (often a division by zero) |
+| Reachable, but not reached (free version) | The tip stopped short | Not identified in the free version | Try another starting pose or check the joint limits |
+
+In Pro, the last case gets a real "why": which joint hit its limit, or whether the
+solver got stuck. We are bringing the same three answers to the rest of the library
+(the C bridge and WebAssembly still return plain error codes today).
+
 ## Why another kinematics library?
 
 Most IK solvers give you this:
