@@ -1,1 +1,24 @@
+# Compilacion de Rust
 /target
+
+# Salida de wasm-pack
+/pkg
+**/pkg
+
+# Resultados de los ejemplos (se regeneran al correrlos)
+/arm.txt
+/figure.txt
+/pose.txt
+/scene.txt
+
+# Archivos temporales para revisar codigo
+/robotics.txt
+/geoalg-todo.txt
+/geoalg-completo.txt
+
+# Respaldos de rustfmt
+*.rs.bk
+
+# Archivos que crea Windows
+Thumbs.db
+desktop.ini
