@@ -1,183 +1,199 @@
-﻿# geoalg
+# geoalg
 
 **The kinematics library that tells you WHY it failed.**
 
-[![License](https://img.shields.io/badge/license-AGPL--3.0%20%2F%20Commercial-blue.svg)](#licenses--dual-licensing)
+![Status](https://img.shields.io/badge/status-v0.1%20in%20development-orange.svg)
+[![License](https://img.shields.io/badge/license-AGPL--3.0%20%2F%20Commercial-blue.svg)](#license)
 
-Projective Geometric Algebra (PGA) for Rust — robotics, geometry, and math that explains itself.
+3D geometry and robot kinematics in Rust, built on Projective Geometric Algebra (PGA).
+Runs in Rust, in the browser (WebAssembly), from C, and in Unity.
+
+> **Status:** geoalg is not published on crates.io or npm yet. Everything in this
+> README works today from this repository. If something is not listed under
+> [What you can use today](#what-you-can-use-today), it is not shipped yet.
 
 ## Why another kinematics library?
 
-Most IK solvers return this:
+Most IK solvers give you this:
 
-    Error -31: no solution found
+```
+Error -31: no solution found
+```
 
-geoalg is built to return this instead:
+geoalg tells you what happened and what to do about it:
 
-    if !result.converged {
-        println!("{}", result.diagnostic.reason);
-        // "Joint 2 at limit 90 degrees (required: 112)"
-        // "Target 3.4m away, arm reaches 3.0m"
-        println!("{}", result.diagnostic.suggestion);
-        // "Relax joint 2 to 100 degrees OR move target 0.4m closer"
-    }
+```rust
+use geoalg_robotics::demo_arm;
 
-**No more guessing. No more trial and error. geoalg tells you exactly what went wrong and how to fix it.**
+let arm = demo_arm(); // 3 joints, links of length 1, shoulder at height 1
+let (sol, diag) = arm.ik_xyz_explained([2.9, 0.0, 0.0], &[0.1; 3], 200, 1e-6);
 
-&gt; Diagnostics are on the v1 roadmap — see [Roadmap](#roadmap).
-&gt; Everything under [Quick start](#quick-start) works today.
+if !sol.converged {
+    println!("{}", diag);
+}
+```
+
+Output (shortened; messages are in Spanish for now, English is coming):
+
+```
+No se llego al objetivo. Lo mas cerca fue (...), a 1.068 de distancia.
+  - [OUT_OF_REACH] El objetivo esta a 3.07 de la articulacion 2 (el ultimo punto fijo
+    del robot), pero desde ahi el robot alcanza como maximo 2.00.
+    -> Acerca el objetivo al menos 1.07 o usa eslabones mas largos.
+```
+
+Notice the detail: the target is only 2.9 away from the base, so a naive check
+("is it closer than the total arm length of 3?") would say it is reachable. geoalg
+measures from the last point of the robot that never moves (here, the shoulder),
+so it knows the target is impossible, and by how much.
 
 ## Why Projective Geometric Algebra?
 
-If you've worked with 4x4 matrices or quaternions, you know the problems:
+If you have worked with 4x4 matrices, Euler angles or quaternions, you know the pain:
 
 - **Gimbal lock:** Euler angles break at certain orientations.
-- **Complex composition:** multiplying 4x4 matrices is error-prone.
-- **Hard intersections:** where a line crosses a plane requires separate code.
+- **Error-prone composition:** easy to multiply matrices in the wrong order.
+- **Separate code for everything:** rotations, translations and intersections all work differently.
 
-PGA solves all of this with one type: the **multivector**. Motors interpolate smoothly, intersections use the outer product, and there are no singularities.
+In geoalg, a rotation plus a translation is **one object: a motor**. Motors compose
+cleanly, move points, lines and planes the same way, and interpolate smoothly
+without deforming anything.
 
 ## Installation
 
-### Rust
+Not on crates.io yet. Use the repository directly:
 
-    [dependencies]
-    geoalg = { git = "https://github.com/071476/geoalg.git" }
+```toml
+[dependencies]
+geoalg-core = { git = "https://github.com/071476/geoalg.git" }
+geoalg-robotics = { git = "https://github.com/071476/geoalg.git" }
+```
 
 ## Quick start
 
-Works with geoalg today:
+### Motors: turn and move in one object
 
-    use geoalg::prelude::*;
+```rust
+use geoalg_core::{apply_point, Line, Motor, Point, Rotor, Translator};
+use std::f64::consts::FRAC_PI_2;
 
-    fn main() {
-        let p1 = Point::new(0.0, 0.0, 0.0);
-        let p2 = Point::new(2.0, 1.0, 0.0);
+fn main() {
+    // Turn 90 degrees around the Z axis, then move 1 along X.
+    let z_axis = Line::through_points(&Point::origin(), &Point::new(0.0, 0.0, 1.0));
+    let turn = Motor::from_rotor(&Rotor::from_axis_angle(&z_axis, FRAC_PI_2));
+    let shift = Motor::from_translator(&Translator::new(1.0, 0.0, 0.0));
+    let m = turn.then(&shift); // first `turn`, then `shift`
 
-        let line = p1.join(&p2);
-        println!("Distance: {:.3}", p1.distance(&p2));
+    let p = apply_point(&m.inner(), &Point::new(1.0, 0.0, 0.0));
+    println!("{:?}", p.coords()); // about (1, 1, 0)
 
-        let start = Motor::identity();
-        let end = Rotor::from_axis_angle(&Line::z_axis(), std::f64::consts::FRAC_PI_2).to_motor();
+    // Smooth motion: the motor halfway between "no motion" and `m`.
+    let half = Motor::between(&Motor::identity(), &m, 0.5);
+    let q = apply_point(&half.inner(), &Point::new(1.0, 0.0, 0.0));
+    println!("{:?}", q.coords());
+}
+```
 
-        for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
-            let step = start.lerp(&end, t);
-            println!("t={:.2} -&gt; {:?}", t, step);
-        }
-    }
+### Your own robot arm: IK with joint limits
 
-## IK (geoalg-premium)
+```rust
+use geoalg_robotics::Robot;
 
-Position IK with Levenberg-Marquardt, joint limits and adaptive damping.
-This compiles and runs against geoalg-premium today:
+fn main() {
+    // Each joint: axis through the joint itself, link to the next joint, limits.
+    let mut arm = Robot::new();
+    arm.add_revolute((0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.325, 0.0), (-3.14, 3.14)); // base
+    arm.add_revolute((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (-2.6, 2.6));     // shoulder
+    arm.add_revolute((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.8, 0.0), (-2.8, 2.8));     // elbow
 
-    use geoalg_premium::prelude::*;
+    let (sol, diag) = arm.ik_xyz_explained([0.3, 1.975, 0.3], &[0.0; 3], 200, 1e-6);
+    println!("angles: {:?}", sol.angles);
+    println!("{}", diag);
+}
+```
 
-    let arm = RobotArm::new(vec![
-        Joint { axis: [0.0, 0.0, 1.0], offset: [0.0, 0.0, 0.0], limits: (-3.14, 3.14) },
-        Joint { axis: [1.0, 0.0, 0.0], offset: [0.0, 0.8, 0.0], limits: (-1.57, 1.57) },
-        Joint { axis: [1.0, 0.0, 0.0], offset: [0.0, 0.8, 0.0], limits: (-1.57, 1.57) },
-    ]);
+Want to see it first? The studio (geoalg-studio) shows this same arm in 3D, solved
+by geoalg compiled to WebAssembly. An online version is coming soon.
 
-    let result = arm.ik_xyz([0.3, 1.8, 0.3], &[0.0, 0.0, 0.0], 500, 1e-3);
-
-    println!("angles:    {:?}", result.angles);
-    println!("error:     {:.6}", result.error);
-    println!("converged: {}", result.converged);
-
-## What's included
+## What you can use today
 
 ### Free (AGPL-3.0)
 
-| Module | What it does |
-|--------|-------------|
-| **Geometry** | Points, lines, planes, distances, incidences |
-| **Motors** | Rotation + translation in one operator |
-| **Interpolation** | Motor lerp/slerp (no gimbal lock) |
-| **Compat** | 4x4 matrices, quaternions, glam, nalgebra |
+| Feature | What it does |
+|---|---|
+| **Geometry** | Points, lines, planes, spheres, projections, reflections |
+| **Motors** | Rotation + translation in one object, composition, smooth interpolation (`between`) |
+| **Forward kinematics** | Any number of joints, revolute and prismatic, tools (TCP) |
+| **Inverse kinematics** | Damped least squares, joint limits, automatic retries from several starting poses |
+| **Reach check** | `OUT_OF_REACH` (and by how much), `INVALID_TARGET`, `NOT_REACHED` |
+| **WebAssembly** | The library in the browser: 48 KB, 19 KB gzipped |
+| **C bridge** | `geoalg.h`: motors, robots, FK and IK from C, C++ or C# |
+| **Unity** | C# wrapper and a working example |
 
-### Premium (Commercial license)
+### Pro (coming soon)
 
-| Module | What it does | Status |
-|--------|-------------|--------|
-| **IK + Jacobians** | Levenberg-Marquardt, joint limits | ✅ Available |
-| **Planning** | Trajectory planning | ✅ Available |
-| **Stability** | Center of mass, ZMP, support polygon | ✅ Available |
-| **SLAM** | Pose graph optimization | ✅ Available |
-| **Integrators** | Symplectic / geometric integration | ✅ Available |
+| Feature | Status |
+|---|---|
+| Levenberg-Marquardt IK with adaptive damping | Ready, waiting for release |
+| Detailed IK diagnosis: which joint hit its limit, stuck solver | Ready, waiting for release |
+| Exact continuous collision detection (moving spheres) | Ready, waiting for release |
+| Dynamics: mass matrix, gravity, computed torque | In development |
+| SLAM: pose graph optimization | In development |
+| Commercial license (no AGPL obligations) | Contact us |
 
-## Roadmap
-
-Planned, not yet shipped. Listed here so you know where geoalg is going —
-nothing in this section is available today.
-
-- **IK diagnostics** — the "why it failed" engine: joint-limit, reach and
-  collision explanations with fix suggestions. This is our core mission.
-- **Deterministic mode** — bit-exact results across Intel/AMD/ARM,
-  for multiplayer games and robot safety certification.
-- **Dynamics** — mass matrices, Coriolis, gravity.
-- **Full collision** — CCD, swept volumes, distance queries.
-- **Differentiable** — auto-diff for ML training.
-- **More platforms** — Python (`pip install geoalg`), C/C++ (`geoalg.h`),
-  Unity (`Geoalg.cs`), ROS 2 bridge, Bevy bridge.
-
-## What it does NOT do
-
-- Not a rendering engine.
-- PGA 3D only (for now).
-- If it's not in "What's included", it's not shipped yet — check the Roadmap.
+Want early access? Write to ali-gafer@hotmail.com with the subject "geoalg Pro waitlist".
 
 ## Platforms
 
-| Platform | How |
-|----------|-----|
-| **Rust** | `cargo add geoalg` |
-| **WebAssembly** | `wasm-pack build --target web` |
+| Platform | Status | Where |
+|---|---|---|
+| **Rust** | Works | `crates/geoalg-core`, `crates/geoalg-robotics` |
+| **WebAssembly** | Works | `crates/geoalg-wasm` (`wasm-pack build crates/geoalg-wasm --target web --release`) |
+| **C / C++** | Works | `crates/geoalg-ffi` (`cargo build -p geoalg-ffi --release`, header `geoalg.h`) |
+| **Unity (C#)** | Works, tested on Unity 6.3 LTS (Windows) | [`examples/unity`](examples/unity) |
+| Unreal, ROS 2, Python, Bevy | Planned | See the [roadmap](ROADMAP.md) |
 
-More platforms on the roadmap (Python, C/C++, Unity, ROS 2, Bevy).
+## Tests
 
-## Licenses — Dual licensing
+The robotics crate checks exact results, not "close enough": for example, with the
+shoulder at 90 degrees the tip must land exactly on `(0, -2, 1)`, and the tip can
+never end up farther than the arm's total length. Run them with:
 
-geoalg uses a dual license model to protect the author's work and enable open use:
+```
+cargo test -p geoalg-robotics
+cargo test -p geoalg-ffi
+cargo test -p geoalg-wasm
+```
 
-| Who uses it | License | Cost |
-| --- | --- | --- |
-| Open source projects | AGPL-3.0 | Free |
-| Students and research | AGPL-3.0 | Free |
-| Commercial / closed-source products | Commercial | From $19/mo |
+## What it does NOT do
 
-- **AGPL-3.0:** free, but any modification must be shared under AGPL-3.0.
-- **Commercial:** allows use in proprietary products without sharing code.
+- It is not a physics simulator (like Gazebo or MuJoCo).
+- It is not a robot operating system (like ROS).
+- It does not render anything: it gives you the math; you draw it.
+- IK is position-only for now. Position + orientation is planned for v0.2.
+- 3D only (PGA 3D).
 
-&gt; **Important:** AGPL-3.0 requires you to release your full source code
-&gt; if you use geoalg in a web application or SaaS product. If you need
-&gt; to keep your code proprietary, purchase a Commercial License.
+## Roadmap
 
-Commercial plans:
-
-| Plan | Price | Developers | Products | Support |
-| --- | --- | --- | --- | --- |
-| Starter | $19/mo | 1 | 1 | Email (48h) |
-| Team | $49/mo | Up to 3 | Unlimited | Priority (24h) |
-| Business | $149/mo | Up to 10 | Unlimited | Priority (24h) |
-| Enterprise | Contact | Unlimited | Unlimited | SLA guaranteed |
-
-Annual billing: 2 months free.
-
-See [LICENSE-AGPL](LICENSE-AGPL) and [LICENSE-COMMERCIAL](LICENSE-COMMERCIAL).
-
-## Links
-
-- **[Playground](https://geoalg.dev)** — try geoalg in your browser
-- **[Pricing](https://geoalg.dev/pricing)** — commercial license
-- **[GitHub](https://github.com/071476/geoalg)** — source code
-
-## Support the project
-
-If geoalg is useful to you, consider supporting it:
-- **GitHub Sponsors:** https://github.com/sponsors/071476
-- **Commercial inquiries:** ali-gafer@hotmail.com
+See [ROADMAP.md](ROADMAP.md). Next up for v0.1: rotated links (`rpy`), URDF import,
+IK per chain, an export button in the studio, and publishing on crates.io and npm.
 
 ## License
 
-Dual license: AGPL-3.0 + Commercial. See [LICENSE-AGPL](LICENSE-AGPL) and [LICENSE-COMMERCIAL](LICENSE-COMMERCIAL).
+geoalg uses a dual license:
+
+| Who uses it | License | Cost |
+|---|---|---|
+| Open source projects, students, research | AGPL-3.0 | Free |
+| Closed-source / commercial products | Commercial | Contact us |
+
+**AGPL-3.0** is free, but if you use geoalg in your product (including a web app or
+SaaS), you must release your product's source code under AGPL-3.0 too. If you need
+to keep your code private, you need a commercial license.
+
+See [LICENSE-AGPL](LICENSE-AGPL) and [LICENSE-COMMERCIAL](LICENSE-COMMERCIAL).
+
+## Contact
+
+- Commercial license and Pro waitlist: ali-gafer@hotmail.com
+- Issues and ideas: [GitHub Issues](https://github.com/071476/geoalg/issues)
