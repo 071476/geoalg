@@ -33,14 +33,16 @@ if !sol.converged {
 }
 ```
 
-Output (shortened; messages are in Spanish for now, English is coming):
+Real output (messages are in Spanish for now; English is coming):
 
 ```
-No se llego al objetivo. Lo mas cerca fue (...), a 1.068 de distancia.
-  - [OUT_OF_REACH] El objetivo esta a 3.07 de la articulacion 2 (el ultimo punto fijo
-    del robot), pero desde ahi el robot alcanza como maximo 2.00.
-    -> Acerca el objetivo al menos 1.07 o usa eslabones mas largos.
+No se llego al objetivo. Lo mas cerca fue (1.890, 0.000, 0.348), a 1.068 de distancia.
+  - [OUT_OF_REACH] El objetivo esta a 3.07 de la articulacion 2 (el ultimo punto fijo del robot), pero desde ahi el robot alcanza como maximo 2.00. -> Acerca el objetivo al menos 1.07 o usa eslabones mas largos.
 ```
+
+In English: the target is 3.07 away from joint 2 (the last point of the robot that
+never moves), but from there the robot reaches at most 2.00. Move the target at
+least 1.07 closer, or use longer links.
 
 Notice the detail: the target is only 2.9 away from the base, so a naive check
 ("is it closer than the total arm length of 3?") would say it is reachable. geoalg
@@ -90,7 +92,7 @@ fn main() {
     // Smooth motion: the motor halfway between "no motion" and `m`.
     let half = Motor::between(&Motor::identity(), &m, 0.5);
     let q = apply_point(&half.inner(), &Point::new(1.0, 0.0, 0.0));
-    println!("{:?}", q.coords());
+    println!("{:?}", q.coords()); // about (1.21, 0.5, 0)
 }
 ```
 
@@ -112,6 +114,26 @@ fn main() {
 }
 ```
 
+Real output:
+
+```
+angles: [0.7853981633201305, -0.04094591133887167, 0.661514924794567]
+Listo: la punta llego al objetivo (error 3.01e-10).
+```
+
+These are the same angles the studio shows for this arm in the browser: the same
+library, compiled to native code and to WebAssembly, gives the same answer.
+
+### Run the examples
+
+Every example in this README is a real example in the repository:
+
+```
+cargo run -p geoalg-robotics --example why_it_failed
+cargo run -p geoalg-robotics --example my_arm
+cargo run -p geoalg-core --example motors
+```
+
 Want to see it first? The studio (geoalg-studio) shows this same arm in 3D, solved
 by geoalg compiled to WebAssembly. An online version is coming soon.
 
@@ -127,8 +149,8 @@ by geoalg compiled to WebAssembly. An online version is coming soon.
 | **Inverse kinematics** | Damped least squares, joint limits, automatic retries from several starting poses |
 | **Reach check** | `OUT_OF_REACH` (and by how much), `INVALID_TARGET`, `NOT_REACHED` |
 | **WebAssembly** | The library in the browser: 48 KB, 19 KB gzipped |
-| **C bridge** | `geoalg.h`: motors, robots, FK and IK from C, C++ or C# |
-| **Unity** | C# wrapper and a working example |
+| **C bridge** | `geoalg.h`: motors, robots, FK and IK from C, C++ or C# (`geoalg_ffi.dll` is 156 KB) |
+| **Unity** | C# wrapper and a working example (tested on Unity 6.3 LTS, Windows) |
 
 ### Pro (coming soon)
 
@@ -136,7 +158,7 @@ by geoalg compiled to WebAssembly. An online version is coming soon.
 |---|---|
 | Levenberg-Marquardt IK with adaptive damping | Ready, waiting for release |
 | Detailed IK diagnosis: which joint hit its limit, stuck solver | Ready, waiting for release |
-| Exact continuous collision detection (moving spheres) | Ready, waiting for release |
+| Exact continuous collision detection (moving spheres, no tunnelling) | Ready, waiting for release |
 | Dynamics: mass matrix, gravity, computed torque | In development |
 | SLAM: pose graph optimization | In development |
 | Commercial license (no AGPL obligations) | Contact us |
